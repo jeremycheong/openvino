@@ -1,8 +1,7 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "list.hpp"
 #include "base.hpp"
 
 #include <cmath>
@@ -18,7 +17,7 @@ public:
     explicit PowerFileImpl(const CNNLayer* layer) {
         try {
             if (layer->insData.size() != 1 || layer->outData.empty())
-                THROW_IE_EXCEPTION << "Incorrect number of input/output edges!";
+                IE_THROW() << "Incorrect number of input/output edges!";
 
             // TODO: load this from some file or as blob?
             shift_.push_back(1);
@@ -28,8 +27,8 @@ public:
             shift_.push_back(1);
             shift_.push_back(0);
 
-            addConfig(layer, {DataConfigurator(ConfLayout::PLN)}, {DataConfigurator(ConfLayout::PLN)});
-        } catch (InferenceEngine::details::InferenceEngineException &ex) {
+            addConfig(layer, {DataConfigurator(ConfLayout::PLN, Precision::FP32)}, {DataConfigurator(ConfLayout::PLN, Precision::FP32)});
+        } catch (InferenceEngine::Exception &ex) {
             errorMsg = ex.what();
         }
     }
@@ -57,7 +56,7 @@ private:
     std::vector<int> shift_;
 };
 
-REG_FACTORY_FOR(ImplFactory<PowerFileImpl>, PowerFile);
+REG_FACTORY_FOR(PowerFileImpl, PowerFile);
 
 }  // namespace Cpu
 }  // namespace Extensions

@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -12,6 +12,10 @@
 #include "cpp_interfaces/interface/ie_iinfer_async_request_internal.hpp"
 
 namespace InferenceEngine {
+
+#if defined(_MSC_VER)
+#pragma warning(disable : 4250)
+#endif
 
 /**
  * @brief minimum API to be implemented by plugin, which is used in InferRequestBase forwarding mechanism
@@ -37,7 +41,7 @@ public:
     }
 
     void GetUserData(void** data) override {
-        if (data == nullptr) THROW_IE_EXCEPTION << NOT_ALLOCATED_str;
+        if (data == nullptr) IE_THROW(NotAllocated);
         *data = _userData;
     }
 
@@ -50,7 +54,7 @@ public:
      * IInferRequest::CompletionCallback
      * @param ptr A weak pointer to InferRequestBase
      */
-    void SetPublicInterfacePtr(IInferRequest::Ptr ptr) {
+    void SetPointerToPublicInterface(IInferRequest::Ptr ptr) {
         _publicInterface = ptr;
     }
 

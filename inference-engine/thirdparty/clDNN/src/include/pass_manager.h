@@ -1,18 +1,6 @@
-/*
-// Copyright (c) 2018-2019 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
 
 #pragma once
 
@@ -64,7 +52,7 @@ public:
 
 private:
     void run(program_impl& p) override;
-    void add_reorder(program_impl& p, program_node* node, program_node* usr, const layout& reorder_layout);
+    void add_reorder(program_impl& p, program_node* node, program_node* usr);
 };
 
 class add_reshape_to_primitives : public base_pass {
@@ -115,7 +103,6 @@ public:
 private:
     void run(program_impl& p) override;
     void replace_nodes(program_impl& p);
-    void handle_detection_output(program_impl& p);
     void handle_lstm(program_impl& p);
     void handle_dynamic_lstm(program_impl& p);
     void set_outputs(program_impl& p);
@@ -198,10 +185,11 @@ public:
 private:
     void run(program_impl& p) override;
     void fuse_sigmoid_mul_to_swish(program_impl &p);
+    void fuse_bias(program_impl &p);
     void fuse_reorders(program_impl& p);
     void fuse_activations(program_impl& p);
-    void fuse_skip_layers(program_impl& p);
     void fuse_simple_primitives(program_impl &p);
+    void optimize_fused_ops(program_impl &p);
     layout_optimizer& _lo;
 };
 
@@ -329,6 +317,28 @@ public:
 class reverse_optional_nodes_outputs : public base_pass {
 public:
     reverse_optional_nodes_outputs() : base_pass("reverse_optional_nodes_outputs") {}
+    void run(program_impl& p) override;
+};
+
+class concat_input_order : public base_pass {
+    // This optimization changes order of inputs for concatenation to provide
+    // better alignment for execution and allow for optimizing out in some cases.
+    // For example concatenation along features with inputs [13, 1024] in format fsv16
+    // has only first input aligned to feature blocks, blocking performant implementation
+    // for second one.
+    // This can be fixed by chaning order to [1024, 13] and fusing reshuffling of those features
+    // into following layers, such as convolution or fully connected, where it can be
+    // implemented as compile-time weights shuffling.
+    //
+    // Requirements - may work incorrectly if not fullfiled:
+    // - formats are selected
+    // - implementations aren't selected
+    //
+    // Soft requirements - reduce applicability if not fullfiled:
+    // - constant primitives are reduced to data nodes
+    // - no fused primitives
+public:
+    concat_input_order() : base_pass("concat_input_order") {}
     void run(program_impl& p) override;
 };
 

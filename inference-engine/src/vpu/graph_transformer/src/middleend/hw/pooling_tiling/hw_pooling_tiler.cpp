@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -315,8 +315,7 @@ std::vector<TilingOption> HWPoolingTilingSearcher::selectBetterTiling() const {
 
     const auto& splitOver = dirTiling.splitOverTensorDims();
     const auto direction = dirTiling.getDirection();
-
-    const auto cmxLimit = tilingCMXLimit(env.resources.numCMXSlices);
+    const auto cmxLimit = env.resources.tilingCMXLimit;
 
     for (int numBatchTiles = 1; numBatchTiles <= maxNumBatchTiles; numBatchTiles++) {
         //

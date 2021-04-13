@@ -1,18 +1,6 @@
-/*
-// Copyright (c) 2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
 
 #include "space_to_depth_inst.h"
 
@@ -36,6 +24,11 @@ layout space_to_depth_inst::calc_output_layout(space_to_depth_node const& node) 
     const size_t block_size = desc->block_size;
     auto depth_mode = desc->mode;
 
+    auto output_type = input_layout.data_type;
+    if (node.has_fused_primitives()) {
+        output_type = node.get_fused_output_layout().data_type;
+    }
+
     if (depth_mode != space_to_depth::depth_first && depth_mode != space_to_depth::blocks_first)
         CLDNN_ERROR_MESSAGE(node.id(),
                             "Invalid mode for spaceToDepth: must be \"blocks_first\" or \"depth_first\" only");
@@ -52,14 +45,34 @@ layout space_to_depth_inst::calc_output_layout(space_to_depth_node const& node) 
                 std::to_string(input_layout.size.spatial[0]) + ", " + std::to_string(input_layout.size.spatial[1]) +
                     " (x, y). Actual block size is " + std::to_string(block_size));
 
-    const size_t feature = input_layout.size.feature[0] * block_size * block_size;
-    const size_t y = input_layout.size.spatial[1] / block_size;
-    const size_t x = input_layout.size.spatial[0] / block_size;
 
-    return layout{
-        input_layout.data_type,
-        input_format,
-        tensor(TensorValue(input_layout.size.batch[0]), TensorValue(feature), TensorValue(x), TensorValue(y))};
+    if (input_layout.format.dimension() == 5) {
+        if (input_layout.size.spatial[2] % block_size != 0)
+        CLDNN_ERROR_MESSAGE(
+            node.id(),
+            "Sizes of spatials z must be divisible by block size. Actual spatial sizes are " +
+                std::to_string(input_layout.size.spatial[2]) +
+                    " (z). Block size is " + std::to_string(block_size));
+
+        const size_t feature = input_layout.size.feature[0] * block_size * block_size * block_size;
+        const size_t z = input_layout.size.spatial[2] / block_size;
+        const size_t y = input_layout.size.spatial[1] / block_size;
+        const size_t x = input_layout.size.spatial[0] / block_size;
+
+        return layout{
+            output_type,
+            input_format,
+            tensor(TensorValue(input_layout.size.batch[0]), TensorValue(feature), TensorValue(x), TensorValue(y), TensorValue(z))};
+    } else {
+        const size_t feature = input_layout.size.feature[0] * block_size * block_size;
+        const size_t y = input_layout.size.spatial[1] / block_size;
+        const size_t x = input_layout.size.spatial[0] / block_size;
+
+        return layout{
+            output_type,
+            input_format,
+            tensor(TensorValue(input_layout.size.batch[0]), TensorValue(feature), TensorValue(x), TensorValue(y))};
+    }
 }
 
 std::string space_to_depth_inst::to_string(space_to_depth_node const& node) {

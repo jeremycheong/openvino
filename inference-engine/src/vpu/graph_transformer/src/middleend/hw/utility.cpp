@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -86,10 +86,6 @@ int calculateHwBufferSize(const DimValues& dims, const DimsOrder& order) {
     const auto channelIndex = desc.numDims() > 2 ? 1 : 0;
     const auto strides = calcStrides(desc, StridesRequirement().add(channelIndex, DimStride::Aligned));
     return calcTotalByteSize(desc, strides);
-}
-
-int tilingCMXLimit(int numSlices) {
-    return (numSlices / 2) * CMX_SLICE_SIZE + CMX_SLICE_SIZE / 2;
 }
 
 }  // namespace vpu

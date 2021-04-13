@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -252,7 +252,7 @@ void PassImpl::adjustModelForMemReqs(const Model& model) {
 
         for (const auto& cmxData : allCmxDatas) {
             IE_ASSERT(cmxData->usage() == DataUsage::Intermediate);
-            IE_ASSERT(cmxData->parentDataEdge() == nullptr);
+            IE_ASSERT(cmxData->parentDataToDataEdge() == nullptr);
 
             auto cmxDataProducer = cmxData->producer();
             IE_ASSERT(cmxDataProducer != nullptr);
@@ -313,7 +313,7 @@ void PassImpl::adjustModelForMemReqs(const Model& model) {
             model->replaceStageInput(cmxConsumerEdge, ddrCopy);
 
             env.log->trace("Update child datas");
-            for (const auto& childDataEdge : cmxData->childDataEdges()) {
+            for (const auto& childDataEdge : cmxData->childDataToDataEdges()) {
                 VPU_LOGGER_SECTION(env.log);
 
                 auto order = childDataEdge->order();
@@ -327,7 +327,7 @@ void PassImpl::adjustModelForMemReqs(const Model& model) {
 
                     env.log->trace("Child data [%s] : mode [%v] offset [%v]", childData->name(), mode, offset);
 
-                    model->replaceParentData(childDataEdge, ddrCopy);
+                    model->replaceDataToDataParent(childDataEdge, ddrCopy);
 
                     loopOverData(childData, [](const Data& subData) {
                         subData->setMemReqs(MemoryType::DDR);
@@ -447,7 +447,7 @@ void PassImpl::packDataInCmx(const Model& model) {
         env.log->trace("Try use CMX for Data [%s]", curCandidate->name());
         VPU_LOGGER_SECTION(env.log);
 
-        IE_ASSERT(curCandidate->parentDataEdge() == nullptr);
+        IE_ASSERT(curCandidate->parentDataToDataEdge() == nullptr);
         IE_ASSERT(curCandidate->usage() == DataUsage::Intermediate);
 
         auto curMemoryType = curCandidate->memReqs();
@@ -458,7 +458,7 @@ void PassImpl::packDataInCmx(const Model& model) {
             return DataLoopStatus::NextChild;
         });
 
-        auto allocRes = runAllocator(model, true);
+        auto allocRes = runAllocator(model, EnableShapeAllocation::NO, CheckOnlyCMX::YES);
         env.log->trace("Allocation result : %v", allocRes.status);
 
         if (allocRes.status != AllocationStatus::OK) {

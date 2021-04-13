@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -9,7 +9,7 @@
 #include <unordered_set>
 #include <string>
 
-#include <vpu/vpu_plugin_config.hpp>
+#include <vpu/myriad_config.hpp>
 #include <vpu/private_plugin_config.hpp>
 
 #include <vpu/parsed_config_base.hpp>

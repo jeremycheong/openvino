@@ -1,9 +1,10 @@
-// Copyright (C) 2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
 #pragma once
 
+#include <legacy/ie_layers.h>
 #include <vpu/model/data_contents/calculated_data_content.hpp>
 
 namespace vpu {

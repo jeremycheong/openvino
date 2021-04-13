@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -26,7 +26,7 @@ TEST_F(GraphTransformerTest, CantConnectInputOutputDatas) {
     model->attrs().set<int>("numOutputs", 1);
 
     ASSERT_ANY_THROW(
-    model->connectDatas()
+    model->connectDataWithData()
         .parent(input)
         .child(output)
         .mode(SharedDataMode::ROI)

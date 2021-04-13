@@ -1,14 +1,15 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
 #pragma once
 
 #include <ie_blob.h>
-#include <ie_layers_property.hpp>
+#include <ie_core.hpp>
+#include <legacy/cnn_network_impl.hpp>
+#include <legacy/ie_layers_property.hpp>
 #include <precision_utils.h>
 #include <common_test_utils/xml_net_builder/xml_net_builder.hpp>
-#include <xml_helper.hpp>
 #include <tests_common.hpp>
 
 #if defined(__GNUC__) && (__GNUC__ <= 4) && (__GNUC_MINOR__ < 9) && !defined(__clang__)
@@ -30,6 +31,7 @@
 #endif
 
 #define REPLACE_WITH_NUM(SRC, PATTERN, NUM) REPLACE_WITH_STR(SRC, PATTERN, to_string_c_locale(NUM))
+
 #define REPLACE_WITH_NUM_VECTOR(SRC, PATTERN, NUMS) \
     { std::string result; \
         if (NUMS.size() > 0u) { \
@@ -39,6 +41,7 @@
             } \
         } \
     REPLACE_WITH_STR(SRC, PATTERN, result); }
+
 #define REPLACE_WITH_NUM_VECTOR_REVERSE(SRC, PATTERN, NUMS) \
     { std::string result; \
         auto nums_size = NUMS.size(); \
@@ -49,6 +52,7 @@
             } \
         } \
     REPLACE_WITH_STR(SRC, PATTERN, result); }
+
 #define REMOVE_LINE(SRC, PATTERN) REPLACE_WITH_STR(SRC, PATTERN, "")
 
 #define PRETTY_PARAM(name, type)                                                            \
@@ -66,18 +70,9 @@
         *os << #name ": " << ::testing::PrintToString((name::param_type)(param));           \
     }
 
-struct MapStrStr {
-    std::map<std::string, std::string> data{};
-
-    explicit MapStrStr(std::map<std::string, std::string> _data) : data(std::move(_data)) {}
-
-    MapStrStr() = default;
-};
-
 template<int Version = 3>
-inline InferenceEngine::details::CNNNetworkImplPtr
-buildSingleLayerNetworkCommon(InferenceEngine::details::IFormatParser *parser,
-                              const std::string &layerType,
+inline InferenceEngine::CNNNetwork
+buildSingleLayerNetworkCommon(const std::string &layerType,
                               const CommonTestUtils::InOutShapes &inOutShapes,
                               std::map<std::string, std::string> *params,
                               const std::string &layerDataName = "data",
@@ -85,8 +80,6 @@ buildSingleLayerNetworkCommon(InferenceEngine::details::IFormatParser *parser,
                               size_t weightsSize = 0,
                               size_t biasesSize = 0,
                               const InferenceEngine::TBlob<uint8_t>::Ptr &weights = nullptr) {
-    IE_ASSERT(parser);
-    testing::XMLHelper xmlHelper(parser);
     std::string precisionStr = precision.name();
     auto netBuilder = CommonTestUtils::XmlNetBuilder<Version>::buildNetworkWithOneInput("Mock", inOutShapes.inDims[0],
                                                                                 precisionStr);
@@ -105,20 +98,9 @@ buildSingleLayerNetworkCommon(InferenceEngine::details::IFormatParser *parser,
     } else {
         testContent = netBuilder.finish();
     }
-    xmlHelper.loadContent(testContent);
-    auto result = xmlHelper.parseWithReturningNetwork();
-    if (weights) xmlHelper.setWeights(weights);
-    return result;
-}
 
-inline std::string getTestDeviceName(std::string libraryName) {
-    if (libraryName == "MKLDNNPlugin") {
-        return "CPU";
-    } else if (libraryName == "clDNNPlugin") {
-        return "GPU";
-    } else {
-        return libraryName;
-    }
+    InferenceEngine::Core ie;
+    return ie.ReadNetwork(testContent, weights);
 }
 
 void GenRandomDataCommon(InferenceEngine::Blob::Ptr blob);
@@ -128,6 +110,7 @@ class BufferWrapper {
     InferenceEngine::ie_fp16 *fp16_ptr;
     float *fp32_ptr;
     int32_t *i32_ptr;
+    uint8_t *u8_ptr;
 public:
     explicit BufferWrapper(const InferenceEngine::Blob::Ptr &blob);
 

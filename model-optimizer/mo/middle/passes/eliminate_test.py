@@ -1,18 +1,5 @@
-"""
- Copyright (C) 2018-2020 Intel Corporation
-
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
-      http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
-"""
+# Copyright (C) 2018-2021 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 
 import unittest
 
@@ -22,14 +9,14 @@ from mo.graph.graph import Node
 from mo.middle.passes.eliminate import mark_output_reachable_nodes, mark_const_producer_nodes
 from mo.utils.unittest.graph import build_graph
 
-nodes_attributes = {'placeholder_1': {'type': 'Parameter', 'kind': 'op'},
-                    'placeholder_2': {'type': 'Parameter', 'kind': 'op'},
-                    'node_1': {'type': 'Identity', 'value': None, 'kind': 'op'},
-                    'node_2': {'type': 'Identity', 'value': None, 'kind': 'op'},
-                    'node_3': {'type': 'Identity', 'value': None, 'kind': 'op'},
-                    'node_4': {'type': 'Identity', 'value': None, 'kind': 'op'},
-                    'node_5': {'type': 'Identity', 'value': None, 'kind': 'op'},
-                    'node_6': {'type': 'Identity', 'value': None, 'kind': 'op'},
+nodes_attributes = {'placeholder_1': {'type': 'Parameter', 'kind': 'op', 'op': 'Parameter'},
+                    'placeholder_2': {'type': 'Parameter', 'kind': 'op', 'op': 'Parameter'},
+                    'node_1': {'type': 'Identity', 'value': None, 'kind': 'op', 'op': 'Identity'},
+                    'node_2': {'type': 'Identity', 'value': None, 'kind': 'op', 'op': 'Identity'},
+                    'node_3': {'type': 'Identity', 'value': None, 'kind': 'op', 'op': 'Identity'},
+                    'node_4': {'type': 'Identity', 'value': None, 'kind': 'op', 'op': 'Identity'},
+                    'node_5': {'type': 'Identity', 'value': None, 'kind': 'op', 'op': 'Identity'},
+                    'node_6': {'type': 'Identity', 'value': None, 'kind': 'op', 'op': 'Identity'},
                     'placeholder_1_data_node': {'value': None, 'kind': 'data'},
                     'placeholder_2_data_node': {'value': None, 'kind': 'data'},
                     'data_node_1': {'value': None, 'kind': 'data'},
@@ -39,9 +26,6 @@ nodes_attributes = {'placeholder_1': {'type': 'Parameter', 'kind': 'op'},
                     'data_node_4': {'value': None, 'kind': 'data'},
                     'data_node_5': {'value': None, 'shape': None, 'kind': 'data'},
                     'data_node_6': {'value': None, 'shape': None, 'kind': 'data'},
-                    'tf_call_1': {'type': 'TFCustomSubgraphCall', 'kind': 'op'},
-                    'tf_call_2': {'type': 'TFCustomSubgraphCall', 'kind': 'op'},
-                    'tf_call_3': {'type': 'TFCustomSubgraphCall', 'kind': 'op'},
                     'op_output': {'kind': 'op', 'op': 'Result'},
                     'op_output_1': {'kind': 'op', 'op': 'Result'},
                     'op_output_2': {'kind': 'op', 'op': 'Result'}

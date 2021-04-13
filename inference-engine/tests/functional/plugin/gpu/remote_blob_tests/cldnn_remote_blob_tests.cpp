@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -7,18 +7,10 @@
 #include <vector>
 #include <memory>
 
-#include <cpp/ie_cnn_net_reader.h>
-#include <inference_engine.hpp>
 #include <ie_compound_blob.h>
 
 #include <cldnn/cldnn_config.hpp>
-
-#ifdef _WIN32
-# include <gpu/gpu_context_api_dx.hpp>
-#elif defined ENABLE_LIBVA
-# include <gpu/gpu_context_api_va.hpp>
-#endif
-#include <gpu/gpu_context_api_ocl.hpp>
+#include <remote_blob_tests/remote_blob_helpers.hpp>
 #include <common_test_utils/test_common.hpp>
 #include <functional_test_utils/plugin_cache.hpp>
 
@@ -29,58 +21,16 @@ using namespace ::testing;
 using namespace InferenceEngine;
 using namespace InferenceEngine::gpu;
 
-struct OpenCL {
-    cl::Context _context;
-    cl::Device _device;
-    cl::CommandQueue _queue;
-
-    explicit OpenCL(std::shared_ptr<std::vector<cl_context_properties>> media_api_context_properties = nullptr) {
-        // get Intel iGPU OCL device, create context and queue
-        {
-            const unsigned int refVendorID = 0x8086;
-            cl_uint n = 0;
-            cl_int err = clGetPlatformIDs(0, NULL, &n);
-
-            // Get platform list
-            std::vector<cl_platform_id> platform_ids(n);
-            err = clGetPlatformIDs(n, platform_ids.data(), NULL);
-
-            for (auto& id : platform_ids) {
-                cl::Platform platform = cl::Platform(id);
-                std::vector<cl::Device> devices;
-                platform.getDevices(CL_DEVICE_TYPE_GPU, &devices);
-                for (auto& d : devices) {
-                    if (refVendorID == d.getInfo<CL_DEVICE_VENDOR_ID>()) {
-                        _device = d;
-                        _context = cl::Context(_device);
-                        break;
-                    }
-                }
-            }
-            cl_command_queue_properties props = CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE;
-            _queue = cl::CommandQueue(_context, _device, props);
-        }
-    }
-
-    explicit OpenCL(cl_context context) {
-        // user-supplied context handle
-        _context = cl::Context(context, true);
-        _device = cl::Device(_context.getInfo<CL_CONTEXT_DEVICES>()[0].get(), true);
-
-        cl_command_queue_properties props = CL_QUEUE_OUT_OF_ORDER_EXEC_MODE_ENABLE;
-        _queue = cl::CommandQueue(_context, _device, props);
-    }
-};
-
 class RemoteBlob_Test : public CommonTestUtils::TestsCommon {
 protected:
     std::shared_ptr<ngraph::Function> fn_ptr;
+
     virtual void SetUp() {
         fn_ptr = ngraph::builder::subgraph::makeSplitMultiConvConcat();
     }
 };
 
-TEST_F(RemoteBlob_Test, canInputUserBlob) {
+TEST_F(RemoteBlob_Test, smoke_canInputUserBlob) {
 #if defined(_WIN32) || defined(ANDROID)
     GTEST_SKIP();
 #endif
@@ -96,7 +46,8 @@ TEST_F(RemoteBlob_Test, canInputUserBlob) {
 
     // regular inference
     auto inf_req_regular = exec_net.CreateInferRequest();
-    InferenceEngine::Blob::Ptr fakeImageData = FuncTestUtils::createAndFillBlob(net.getInputsInfo().begin()->second->getTensorDesc());
+    InferenceEngine::Blob::Ptr fakeImageData = FuncTestUtils::createAndFillBlob(
+            net.getInputsInfo().begin()->second->getTensorDesc());
     inf_req_regular.SetBlob(net.getInputsInfo().begin()->first, fakeImageData);
 
     inf_req_regular.Infer();
@@ -114,11 +65,12 @@ TEST_F(RemoteBlob_Test, canInputUserBlob) {
 
     cl::Buffer shared_buffer(ocl_instance->_context, CL_MEM_READ_WRITE, imSize, NULL, &err);
     {
-        void* buffer = fakeImageData->buffer();
+        void *buffer = fakeImageData->buffer();
         ocl_instance->_queue.enqueueWriteBuffer(shared_buffer, true, 0, imSize, buffer);
     }
 
-    Blob::Ptr shared_blob = make_shared_blob(net.getInputsInfo().begin()->second->getTensorDesc(), cldnn_context, shared_buffer);
+    Blob::Ptr shared_blob = make_shared_blob(net.getInputsInfo().begin()->second->getTensorDesc(), cldnn_context,
+                                             shared_buffer);
     inf_req_shared.SetBlob(net.getInputsInfo().begin()->first, shared_blob);
 
     inf_req_shared.Infer();
@@ -133,7 +85,7 @@ TEST_F(RemoteBlob_Test, canInputUserBlob) {
     }
 }
 
-TEST_F(RemoteBlob_Test, canInferOnUserContext) {
+TEST_F(RemoteBlob_Test, smoke_canInferOnUserContext) {
 #if defined _WIN32
     GTEST_SKIP();
 #endif
@@ -145,8 +97,8 @@ TEST_F(RemoteBlob_Test, canInferOnUserContext) {
 
     auto blob = FuncTestUtils::createAndFillBlob(net.getInputsInfo().begin()->second->getTensorDesc());
 
-    auto ie = InferenceEngine::Core();
-    auto exec_net_regular = ie.LoadNetwork(net, CommonTestUtils::DEVICE_GPU);
+    auto ie = PluginCache::get().ie();
+    auto exec_net_regular = ie->LoadNetwork(net, CommonTestUtils::DEVICE_GPU);
 
     // regular inference
     auto inf_req_regular = exec_net_regular.CreateInferRequest();
@@ -158,8 +110,8 @@ TEST_F(RemoteBlob_Test, canInferOnUserContext) {
 
     // inference using remote blob
     auto ocl_instance = std::make_shared<OpenCL>();
-    auto remote_context = make_shared_context(ie, CommonTestUtils::DEVICE_GPU, ocl_instance->_context.get());
-    auto exec_net_shared = ie.LoadNetwork(net, remote_context);
+    auto remote_context = make_shared_context(*ie, CommonTestUtils::DEVICE_GPU, ocl_instance->_context.get());
+    auto exec_net_shared = ie->LoadNetwork(net, remote_context);
     auto inf_req_shared = exec_net_shared.CreateInferRequest();
     inf_req_shared.SetBlob(net.getInputsInfo().begin()->first, fakeImageData);
 
@@ -182,9 +134,10 @@ class TwoNets_Test : public CommonTestUtils::TestsCommon, public testing::WithPa
                    ngraph::builder::subgraph::makeMultiSingleConv()};
     };
 public:
-    static std::string getTestCaseName(const testing::TestParamInfo<std::size_t> & obj) {
+    static std::string getTestCaseName(const testing::TestParamInfo<std::size_t> &obj) {
         return "num_streams_" + std::to_string(obj.param);
     }
+
 protected:
     size_t num_streams;
     std::vector<std::shared_ptr<ngraph::Function>> fn_ptrs;
@@ -200,7 +153,7 @@ TEST_P(TwoNets_Test, canInferTwoExecNets) {
 
     std::vector<std::string> outputs;
     std::vector<InferRequest> irs;
-    std::vector<std::shared_ptr<float*>> ref;
+    std::vector<std::vector<uint8_t>> ref;
     std::vector<int> outElementsCount;
 
     for (size_t i = 0; i < nets.size(); ++i) {
@@ -210,7 +163,7 @@ TEST_P(TwoNets_Test, canInferTwoExecNets) {
         net.getInputsInfo().begin()->second->setPrecision(Precision::FP32);
 
         auto exec_net = ie.LoadNetwork(net, CommonTestUtils::DEVICE_GPU,
-                               {{PluginConfigParams::KEY_GPU_THROUGHPUT_STREAMS, std::to_string(num_streams)}});
+                                       {{PluginConfigParams::KEY_GPU_THROUGHPUT_STREAMS, std::to_string(num_streams)}});
 
         for (int j = 0; j < num_streams; j++) {
             outputs.push_back(net.getOutputsInfo().begin()->first);
@@ -221,11 +174,14 @@ TEST_P(TwoNets_Test, canInferTwoExecNets) {
             auto blob = FuncTestUtils::createAndFillBlob(net.getInputsInfo().begin()->second->getTensorDesc());
             inf_req.SetBlob(net.getInputsInfo().begin()->first, blob);
 
-            outElementsCount.push_back(std::accumulate(begin(fn_ptrs[i]->get_output_shape(0)), end(fn_ptrs[i]->get_output_shape(0)), 1,
-                                                       std::multiplies<size_t>()));
-
-            std::shared_ptr<float*> reOutData = ngraph::helpers::inferFnWithInterp<ngraph::element::Type_t::f32>(
-                    fn_ptrs[i], {inf_req.GetBlob(net.getInputsInfo().begin()->first)->buffer()}).front();
+            outElementsCount.push_back(
+                    std::accumulate(begin(fn_ptrs[i]->get_output_shape(0)), end(fn_ptrs[i]->get_output_shape(0)), 1,
+                                    std::multiplies<size_t>()));
+            const auto inBlob = inf_req.GetBlob(net.getInputsInfo().begin()->first);
+            const auto blobSize = inBlob->byteSize();
+            const auto inBlobBuf = inBlob->cbuffer().as<uint8_t *>();
+            std::vector<uint8_t> inData(inBlobBuf, inBlobBuf + blobSize);
+            std::vector<uint8_t> reOutData = ngraph::helpers::interpreterFunction(fn_ptrs[i], {inData}).front();
             ref.push_back(reOutData);
         }
     }
@@ -241,13 +197,15 @@ TEST_P(TwoNets_Test, canInferTwoExecNets) {
         }
     }
 
-    for (auto& net : nets) {
+    for (auto &net : nets) {
         ASSERT_EQ(net.getOutputsInfo().begin()->second->getPrecision(), InferenceEngine::Precision::FP32);
     }
     auto thr = FuncTestUtils::GetComparisonThreshold(InferenceEngine::Precision::FP32);
     for (size_t i = 0; i < irs.size(); ++i) {
+        const auto &refBuffer = ref[i].data();
         ASSERT_EQ(outElementsCount[i], irs[i].GetBlob(outputs[i])->size());
-        FuncTestUtils::compareRawBuffers(irs[i].GetBlob(outputs[i])->buffer().as<float*>(), *ref[i], outElementsCount[i],
+        FuncTestUtils::compareRawBuffers(irs[i].GetBlob(outputs[i])->buffer().as<float *>(),
+                                         reinterpret_cast<const float *>(refBuffer), outElementsCount[i],
                                          outElementsCount[i],
                                          thr);
     }
@@ -255,4 +213,4 @@ TEST_P(TwoNets_Test, canInferTwoExecNets) {
 
 const std::vector<size_t> num_strems{1, 2};
 
-INSTANTIATE_TEST_CASE_P(RemoteBlob, TwoNets_Test, ::testing::ValuesIn(num_strems), TwoNets_Test::getTestCaseName);
+INSTANTIATE_TEST_CASE_P(smoke_RemoteBlob, TwoNets_Test, ::testing::ValuesIn(num_strems), TwoNets_Test::getTestCaseName);

@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -48,7 +48,7 @@ void PassImpl::run(const Model& model) {
         // Data <-> Data Edges.
         //
 
-        if (auto dataEdge = data->parentDataEdge()) {
+        if (auto dataEdge = data->parentDataToDataEdge()) {
             auto parent = dataEdge->parent();
             auto child = dataEdge->child();
 
@@ -112,7 +112,7 @@ void PassImpl::run(const Model& model) {
                 //
 
                 if (dataEdge->connectionMode() == SharedConnectionMode::SINGLE_STAGE) {
-                    if (connectionStage->type() == StageType::Concat ||
+                    if (connectionStage->type() == StageType::StubConcat ||
                         connectionStage->type() == StageType::Expand) {
                         IE_ASSERT(producer == child);
                         IE_ASSERT(consumer == parent);

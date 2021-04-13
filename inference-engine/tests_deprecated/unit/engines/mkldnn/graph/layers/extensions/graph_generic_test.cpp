@@ -1,19 +1,13 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
-
-#include <gtest/gtest.h>
-#include "mkldnn_graph.h"
 
 #include "test_graph.hpp"
 
 #include <ie_iextension.h>
-#include <cpp/ie_cnn_net_reader.h>
+#include <ie_core.hpp>
 #include <ie_plugin_config.hpp>
-#include <mkldnn_extension_mngr.h>
 #include "tests_common.hpp"
-
-#include "unit_test_utils/mocks/mock_error_listener.hpp"
 
 using namespace ::testing;
 using namespace std;
@@ -421,7 +415,7 @@ private:
 };
 using fake_ext_factory = std::function<InferenceEngine::ILayerImplFactory*(const InferenceEngine::CNNLayer *)>;
 
-class FakeExtensionFabric : public InferenceEngine::IExtension {
+class FakeExtensionFabric : public InferenceEngine::Extensions::Cpu::MKLDNNExtensions {
 public:
     FakeExtensionFabric() {
         factories["CustomNewConvolution"] = [](const InferenceEngine::CNNLayer * cnnLayer) -> InferenceEngine::ILayerImplFactory* { return new FakeGenericPrimitiveFactory(); };
@@ -438,9 +432,6 @@ public:
 
     void GetVersion(const InferenceEngine::Version *&versionInfo) const noexcept override {}
     void Unload() noexcept override {}
-    void Release() noexcept override {
-        delete this;
-    }
     InferenceEngine::StatusCode getPrimitiveTypes(char**& types, unsigned int& size, InferenceEngine::ResponseDesc* resp) noexcept override {
         types = new char *[factories.size()];
         size_t count = 0;
@@ -461,11 +452,6 @@ public:
         }
         factory = factories[cnnLayer->type](cnnLayer);
         return InferenceEngine::OK;
-    }
-
-    InferenceEngine::StatusCode getShapeInferImpl(InferenceEngine::IShapeInferImpl::Ptr& impl, const char* type,
-                                                  InferenceEngine::ResponseDesc* resp) noexcept override {
-        return InferenceEngine::NOT_IMPLEMENTED;
     }
 
 private:
@@ -492,7 +478,8 @@ TEST_F(MKLDNNGraphGenericTests, canGetPrimitiveDescriptorsList) {
     layerPtr->outData.push_back(dataPtr);
 
     mkldnn::engine eng(mkldnn::engine(mkldnn::engine::kind::cpu, 0));
-    node.reset(MKLDNNPlugin::MKLDNNNode::CreateNode(layerPtr, eng, extMgr));
+    MKLDNNPlugin::MKLDNNWeightsSharing::Ptr cache;
+    node.reset(MKLDNNPlugin::MKLDNNNode::factory().create(layerPtr, eng, extMgr, cache));
     ASSERT_EQ(MKLDNNPlugin::Type::Generic, node->getType());
 
     ASSERT_NO_THROW(node->getSupportedDescriptors());
@@ -573,11 +560,12 @@ TEST_F(MKLDNNGraphGenericTests, DontCreateGPUGenericPrimitive) {
     MKLDNNPlugin::MKLDNNExtensionManager::Ptr extMgr(new MKLDNNPlugin::MKLDNNExtensionManager());
     extMgr->AddExtension(extension);
 
-    InferenceEngine::CNNNetReader net_reader;
-    ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
+    InferenceEngine::Core core;
+    InferenceEngine::CNNNetwork network;
+    ASSERT_NO_THROW(network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr()));
 
     MKLDNNGraphTestClass graph;
-    ASSERT_THROW(graph.CreateGraph(net_reader.getNetwork(), extMgr), InferenceEngine::details::InferenceEngineException);
+    ASSERT_THROW(graph.CreateGraph(network, extMgr), InferenceEngine::Exception);
 }
 
 TEST_F(MKLDNNGraphGenericTests, ExecuteConstGenericPrimitive) {
@@ -621,11 +609,12 @@ TEST_F(MKLDNNGraphGenericTests, ExecuteConstGenericPrimitive) {
     MKLDNNPlugin::MKLDNNExtensionManager::Ptr extMgr(new MKLDNNPlugin::MKLDNNExtensionManager());
     extMgr->AddExtension(extension);
 
-    InferenceEngine::CNNNetReader net_reader;
-    ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
+    InferenceEngine::Core core;
+    InferenceEngine::CNNNetwork network;
+    ASSERT_NO_THROW(network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr()));
 
     MKLDNNGraphTestClass graph;
-    graph.CreateGraph(net_reader.getNetwork(), extMgr);
+    graph.CreateGraph(network, extMgr);
 
     InferenceEngine::SizeVector dims_src = {1, 3, 5, 5};
 
@@ -643,7 +632,7 @@ TEST_F(MKLDNNGraphGenericTests, ExecuteConstGenericPrimitive) {
     srcs.insert(std::pair<std::string, InferenceEngine::Blob::Ptr>("in1", src));
 
     InferenceEngine::OutputsDataMap out;
-    out = net_reader.getNetwork().getOutputsInfo();
+    out = network.getOutputsInfo();
     InferenceEngine::BlobMap outputBlobs;
 
     std::pair<std::string, InferenceEngine::DataPtr> item = *out.begin();
@@ -708,11 +697,12 @@ TEST_F(MKLDNNGraphGenericTests, ExecuteGenericPrimitive) {
     MKLDNNPlugin::MKLDNNExtensionManager::Ptr extMgr(new MKLDNNPlugin::MKLDNNExtensionManager());
     extMgr->AddExtension(extension);
 
-    InferenceEngine::CNNNetReader net_reader;
-    ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
+    InferenceEngine::Core core;
+    InferenceEngine::CNNNetwork network;
+    ASSERT_NO_THROW(network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr()));
 
     MKLDNNGraphTestClass graph;
-    graph.CreateGraph(net_reader.getNetwork(), extMgr);
+    graph.CreateGraph(network, extMgr);
 
     InferenceEngine::SizeVector dims_src = {1, 3, 5, 5};
 
@@ -730,7 +720,7 @@ TEST_F(MKLDNNGraphGenericTests, ExecuteGenericPrimitive) {
     srcs.insert(std::pair<std::string, InferenceEngine::Blob::Ptr>("in1", src));
 
     InferenceEngine::OutputsDataMap out;
-    out = net_reader.getNetwork().getOutputsInfo();
+    out = network.getOutputsInfo();
     InferenceEngine::BlobMap outputBlobs;
 
     std::pair<std::string, InferenceEngine::DataPtr> item = *out.begin();
@@ -844,11 +834,12 @@ TEST_F(MKLDNNGraphGenericTests, ExecuteGenericPrimitiveWithTwoOutputs) {
     MKLDNNPlugin::MKLDNNExtensionManager::Ptr extMgr(new MKLDNNPlugin::MKLDNNExtensionManager());
     extMgr->AddExtension(extension);
 
-    InferenceEngine::CNNNetReader net_reader;
-    ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
+    InferenceEngine::Core core;
+    InferenceEngine::CNNNetwork network;
+    ASSERT_NO_THROW(network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr()));
 
     MKLDNNGraphTestClass graph;
-    graph.CreateGraph(net_reader.getNetwork(), extMgr);
+    graph.CreateGraph(network, extMgr);
 
     InferenceEngine::SizeVector dims_src = {1, 3, 5, 5};
 
@@ -868,7 +859,7 @@ TEST_F(MKLDNNGraphGenericTests, ExecuteGenericPrimitiveWithTwoOutputs) {
     srcs.insert(std::pair<std::string, InferenceEngine::Blob::Ptr>("in1", src));
 
     InferenceEngine::OutputsDataMap out;
-    out = net_reader.getNetwork().getOutputsInfo();
+    out = network.getOutputsInfo();
     InferenceEngine::BlobMap outputBlobs;
 
     auto it = out.begin();
@@ -953,11 +944,12 @@ TEST_F(MKLDNNGraphGenericTests, ExecuteGenericInPlaceConcat) {
     MKLDNNPlugin::MKLDNNExtensionManager::Ptr extMgr(new MKLDNNPlugin::MKLDNNExtensionManager());
     extMgr->AddExtension(extension);
 
-    InferenceEngine::CNNNetReader net_reader;
-    ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
+    InferenceEngine::Core core;
+    InferenceEngine::CNNNetwork network;
+    ASSERT_NO_THROW(network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr()));
 
     MKLDNNGraphTestClass graph;
-    graph.CreateGraph(net_reader.getNetwork(), extMgr);
+    graph.CreateGraph(network, extMgr);
 
     InferenceEngine::SizeVector dims_src1 = {1, 3, 5, 5};
 
@@ -984,7 +976,7 @@ TEST_F(MKLDNNGraphGenericTests, ExecuteGenericInPlaceConcat) {
     srcs.insert(std::pair<std::string, InferenceEngine::Blob::Ptr>("in2", src2));
 
     InferenceEngine::OutputsDataMap out;
-    out = net_reader.getNetwork().getOutputsInfo();
+    out = network.getOutputsInfo();
     InferenceEngine::BlobMap outputBlobs;
 
     auto it = out.begin();
@@ -1097,11 +1089,12 @@ TEST_F(MKLDNNGraphGenericTests, ExecuteGenericInPlaceSplit) {
     MKLDNNPlugin::MKLDNNExtensionManager::Ptr extMgr(new MKLDNNPlugin::MKLDNNExtensionManager());
     extMgr->AddExtension(extension);
 
-    InferenceEngine::CNNNetReader net_reader;
-    ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
+    InferenceEngine::Core core;
+    InferenceEngine::CNNNetwork network;
+    ASSERT_NO_THROW(network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr()));
 
     MKLDNNGraphTestClass graph;
-    graph.CreateGraph(net_reader.getNetwork(), extMgr);
+    graph.CreateGraph(network, extMgr);
 
     InferenceEngine::SizeVector dims_src = {1, 4, 4, 4};
 
@@ -1121,7 +1114,7 @@ TEST_F(MKLDNNGraphGenericTests, ExecuteGenericInPlaceSplit) {
     srcs.insert(std::pair<std::string, InferenceEngine::Blob::Ptr>("in1", src));
 
     InferenceEngine::OutputsDataMap out;
-    out = net_reader.getNetwork().getOutputsInfo();
+    out = network.getOutputsInfo();
     InferenceEngine::BlobMap outputBlobs;
     auto it = out.begin();
 
@@ -1193,11 +1186,12 @@ TEST_F(MKLDNNGraphGenericTests, ExecuteGenericPrimitiveWithDynamicBatch) {
     MKLDNNPlugin::MKLDNNExtensionManager::Ptr extMgr(new MKLDNNPlugin::MKLDNNExtensionManager());
     extMgr->AddExtension(extension);
 
-    InferenceEngine::CNNNetReader net_reader;
-    ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
+    InferenceEngine::Core core;
+    InferenceEngine::CNNNetwork network;
+    ASSERT_NO_THROW(network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr()));
 
     MKLDNNGraphTestClass graph;
-    graph.CreateGraph(net_reader.getNetwork(), extMgr);
+    graph.CreateGraph(network, extMgr);
 
     InferenceEngine::SizeVector dims_src = {2, 3, 5, 5};
 
@@ -1215,7 +1209,7 @@ TEST_F(MKLDNNGraphGenericTests, ExecuteGenericPrimitiveWithDynamicBatch) {
     srcs.insert(std::pair<std::string, InferenceEngine::Blob::Ptr>("in1", src));
 
     InferenceEngine::OutputsDataMap out;
-    out = net_reader.getNetwork().getOutputsInfo();
+    out = network.getOutputsInfo();
     InferenceEngine::BlobMap outputBlobs;
 
     std::pair<std::string, InferenceEngine::DataPtr> item = *out.begin();
@@ -1341,11 +1335,12 @@ TEST_F(MKLDNNGraphGenericTests, ExecuteNotInLineGRN) {
         <edge from-layer="2" from-port="4" to-layer="3" to-port="6"/>
     </edges>
 </net>)V0G0N";
-    InferenceEngine::CNNNetReader net_reader;
-    ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
+    InferenceEngine::Core core;
+    InferenceEngine::CNNNetwork network;
+    ASSERT_NO_THROW(network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr()));
 
     MKLDNNGraphTestClass graph;
-    graph.CreateGraph(net_reader.getNetwork());
+    graph.CreateGraph(network);
 
     InferenceEngine::SizeVector dims_src = {1, 3, 2, 2};
 
@@ -1363,7 +1358,7 @@ TEST_F(MKLDNNGraphGenericTests, ExecuteNotInLineGRN) {
     srcs.insert(std::pair<std::string, InferenceEngine::Blob::Ptr>("data", src));
 
     InferenceEngine::OutputsDataMap out;
-    out = net_reader.getNetwork().getOutputsInfo();
+    out = network.getOutputsInfo();
     InferenceEngine::BlobMap outputBlobs;
 
     std::pair<std::string, InferenceEngine::DataPtr> item = *out.begin();
@@ -1480,11 +1475,12 @@ TEST_F(MKLDNNGraphGenericTests, ExecuteInLineGRN) {
     </edges>
 </net>)V0G0N";
 
-    InferenceEngine::CNNNetReader net_reader;
-    ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
+    InferenceEngine::Core core;
+    InferenceEngine::CNNNetwork network;
+    ASSERT_NO_THROW(network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr()));
 
     MKLDNNGraphTestClass graph;
-    graph.CreateGraph(net_reader.getNetwork());
+    graph.CreateGraph(network);
 
     InferenceEngine::SizeVector dims_src = {1, 3, 2, 2};
 
@@ -1503,7 +1499,7 @@ TEST_F(MKLDNNGraphGenericTests, ExecuteInLineGRN) {
     srcs.insert(std::pair<std::string, InferenceEngine::Blob::Ptr>("data2", src2));
 
     InferenceEngine::OutputsDataMap out;
-    out = net_reader.getNetwork().getOutputsInfo();
+    out = network.getOutputsInfo();
     InferenceEngine::BlobMap outputBlobs;
 
     std::pair<std::string, InferenceEngine::DataPtr> item = *out.begin();

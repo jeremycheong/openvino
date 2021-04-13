@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2019 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -10,15 +10,16 @@
  */
 
 #include "ie_parallel.hpp"
+
 #if IE_THREAD == IE_THREAD_TBB || IE_THREAD == IE_THREAD_TBB_AUTO
-#include <tbb/enumerable_thread_specific.h>
+# include <tbb/enumerable_thread_specific.h>
 #else
-#include <unordered_map>
-#include <memory>
-#include <thread>
-#include <mutex>
-#include <utility>
-#include <functional>
+# include <unordered_map>
+# include <memory>
+# include <thread>
+# include <mutex>
+# include <utility>
+# include <functional>
 #endif
 
 namespace InferenceEngine {

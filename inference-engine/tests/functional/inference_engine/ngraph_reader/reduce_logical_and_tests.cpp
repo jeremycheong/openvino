@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -6,7 +6,7 @@
 #include "ngraph_reader_tests.hpp"
 TEST_F(NGraphReaderTests, ReadReduceLogicalAndNetwork) {
     std::string model = R"V0G0N(
-<net name="ReduceLogicalAnd_net" version="10">
+<net name="Network" version="10">
     <layers>
         <layer name="in1" type="Parameter" id="0" version="opset1">
             <data element_type="boolean" shape="1,3,22,22"/>
@@ -20,7 +20,7 @@ TEST_F(NGraphReaderTests, ReadReduceLogicalAndNetwork) {
             </output>
         </layer>
         <layer id="1" name="data1" type="Const" version="opset1">
-            <data offset="0" size="8"/>
+            <data element_type="i64" offset="0" shape="1" size="8"/>
             <output>
                 <port id="0" precision="I64">
                     <dim>1</dim>
@@ -68,7 +68,7 @@ TEST_F(NGraphReaderTests, ReadReduceLogicalAndNetwork) {
 </net>
 )V0G0N";
     std::string modelV5 = R"V0G0N(
-<net name="ReduceLogicalAnd_net" version="5" precision="BOOL" batch="1">
+<net name="Network" version="5" precision="BOOL" batch="1">
     <layers>
         <layer name="in1" type="Input" precision="BOOL" id="0">
             <output>

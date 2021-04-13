@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -7,7 +7,6 @@
 #include "ie_blob.h"
 #include "blob_factory.hpp"
 #include "utils/blob_dump.h"
-#include <cpp/ie_cnn_net_reader.h>
 
 using namespace InferenceEngine;
 using namespace MKLDNNPlugin;
@@ -20,7 +19,7 @@ TEST(MKLDNNDumpTests, UnallocatedBlob_NoDump) {
 
     EXPECT_THROW({
         BlobDumper(blob).dump(buff);
-    }, details::InferenceEngineException);
+    }, Exception);
 }
 
 TEST(MKLDNNDumpTests, EmptyBlob_NoDump) {
@@ -31,7 +30,7 @@ TEST(MKLDNNDumpTests, EmptyBlob_NoDump) {
 
     EXPECT_THROW({
         BlobDumper(blob).dump(buff);
-    }, details::InferenceEngineException);
+    }, Exception);
 }
 
 TEST(MKLDNNDumpTests, Ser) {

@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -38,7 +38,7 @@ void PassImpl::run(const Model& model) {
             continue;
         }
 
-        const auto nextStages = getExactNextStages(convolutionStage, {StageType::Power, StageType::Concat});
+        const auto nextStages = getExactNextStages(convolutionStage, {StageType::Power, StageType::StubConcat});
         if (nextStages.size() != 2 || convolutionStage->type() != StageType::StubConv) {
             continue;
         }
@@ -54,7 +54,7 @@ void PassImpl::run(const Model& model) {
             continue;
         }
 
-        auto concatAfterPowerStage = getOneOfSingleNextStage(powerStage, {StageType::Concat});
+        auto concatAfterPowerStage = getOneOfSingleNextStage(powerStage, {StageType::StubConcat});
         if (concatAfterPowerStage != concatStage) {
             continue;
         }

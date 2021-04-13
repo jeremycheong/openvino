@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -6,6 +6,7 @@
 
 #include <vector>
 #include <runtime/pwl.h>
+#include "backend/gna_types.h"
 
 
 void make_gna_pwl(const DnnActivation  fun,
@@ -14,4 +15,5 @@ void make_gna_pwl(const DnnActivation  fun,
                   const double u_bound,
                   const double in_scale,
                   const double out_scale,
-                  std::vector<intel_pwl_segment_t> &gna_pwl);
+                  const bool low_precision,
+                  std::vector<gna_pwl_segment_t> &gna_pwl);

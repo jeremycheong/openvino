@@ -1,18 +1,6 @@
-/*
-// Copyright (c) 2016-2019 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
 
 #pragma once
 
@@ -37,6 +25,7 @@ namespace kernel_selector {
 #endif
 
 // TODO: current solution until we will have kernel selection time based
+#define KernelsPriority float
 #define FORCE_PRIORITY_1 (0.0000001f)
 #define FORCE_PRIORITY_2 (0.0000002f)
 #define FORCE_PRIORITY_3 (0.0000003f)
@@ -58,13 +47,14 @@ std::string GetStringEnv(const char* varName);
 struct KernelString {
     std::string str;
     std::string jit;
+    std::string undefs;
     std::string options;
     std::string entry_point;
     bool batch_compilation;
 
-    KernelString() : str(""), jit(""), options(""), entry_point(""), batch_compilation(false) {}
+    KernelString() : str(""), jit(""), undefs(""), options(""), entry_point(""), batch_compilation(false) {}
 
-    std::string get_hash() { return str + jit + options + entry_point; }
+    std::string get_hash() { return str + jit + undefs + options + entry_point; }
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -120,20 +110,15 @@ struct ArgumentDescriptor {
         OUTPUT,
         WEIGHTS,
         BIAS,
-        PREV_WEIGHTS_GRADIENT,
-        PREV_BIAS_GRADIENT,
         SCALE_TABLE,
         SLOPE,
         SPLIT,
         INTERNAL_BUFFER,
         SCALAR,
-        WEIGHTS_QUANTIZATION_FACTORS,
-        OUTPUT_CALIBRATION_FACTORS,
         RECURRENT,  // RNN/LSTM/GRU recurrent weights
         HIDDEN,     // RNN/LSTM/GRU hidden input
         CELL,       // LSTM cell input
         LSTM_PACK,  // LSTM packed output
-        LEARNING_RATE,
         WEIGHTS_ZERO_POINTS,
         ACTIVATIONS_ZERO_POINTS,
         COMPENSATION,
@@ -204,8 +189,7 @@ struct KernelData {
     std::shared_ptr<Params> params;
     std::vector<clKernelData> kernels;
     std::vector<size_t> internalBufferSizes;
-    Datatype intenralBufferDataType = Datatype::UNSUPPORTED;
-    float estimatedTime = DONT_USE_IF_HAVE_SOMETHING_ELSE;
+    Datatype internalBufferDataType = Datatype::UNSUPPORTED;
     uint64_t runTime = std::numeric_limits<uint64_t>::max();  // kernel run time in nanoseconds
 
     bool reorderInput = false;
@@ -220,7 +204,6 @@ struct KernelData {
         const T& orgParams = static_cast<const T&>(_params);
         kd.params = std::make_shared<T>(orgParams);
         kd.kernels.resize(kernel_nums);
-        kd.estimatedTime = DONT_USE_IF_HAVE_SOMETHING_ELSE;  // for KW
         kd.runTime = std::numeric_limits<uint64_t>::max();
         kd.reorderInput = false;  // for KW
         kd.autoTuneIndex = -1;
@@ -250,11 +233,14 @@ std::string toString(KernelDividerMode mode);
 std::string toString(SoftmaxDim d);
 std::string toString(NormalizeMode mode);
 std::string toString(MVNMode mode);
+std::string toString(MVNEpsMode mode);
 std::string toString(WeightsLayout layout);
 std::string toString(ConcatAxis a);
-std::string toString(TileAxis a);
 std::string toString(GatherAxis a);
+std::string toString(ScatterUpdateAxis a);
 std::string toString(ResampleType type);
+std::string toString(CoordinateTransformationMode mode);
+std::string toString(NearestMode mode);
 std::string toString(const BorderType type);
 std::string toString(const Tensor::Dim& dim);
 std::string toString(const DataTensor& tensor);

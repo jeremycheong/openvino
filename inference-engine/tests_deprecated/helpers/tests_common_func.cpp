@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -255,7 +255,7 @@ bool TestsCommonFunc::compareTop(
 #endif
 
         for (size_t i = 0; i < blob.size(); ++i) {
-            if (abs(ref_top[i].second - buffer[i]) > threshold) {
+            if (std::abs(ref_top[i].second - buffer[i]) > threshold) {
                 return false;
             }
         }

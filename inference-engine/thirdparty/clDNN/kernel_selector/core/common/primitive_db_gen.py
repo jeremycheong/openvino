@@ -1,5 +1,8 @@
 #!/usr/bin/python
 
+# Copyright (C) 2018-2021 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
+
 # To add new kernel please add a .cl file to kernels directory
 # the database name will be the part of the file name up to first '.' character
 # the trailing characters are a tag to allow multiple primitive implementations
@@ -9,6 +12,7 @@ import os
 import argparse
 import glob
 import ntpath
+import re
 
 class OpenCL2CHeaders(object):
 
@@ -36,6 +40,24 @@ class OpenCL2CHeaders(object):
         with open(out_file_name, 'w') as out_file:
             out_file.write(res)
 
+    def append_undefs(self, filename):
+        undefs = ""
+        content = []
+        with open(filename) as f:
+            content += f.readlines()
+        for line in content:
+            if '#define' in line:
+                name = line.strip().split(" ")[1].split("(")[0]
+                undefs += "#ifdef " + name + "\n"
+                undefs += "#undef " + name + "\n"
+                undefs += "#endif\n"
+            if '# define' in line:
+                name = line.strip().split(" ")[2].split("(")[0]
+                undefs += "#ifdef " + name + "\n"
+                undefs += "#undef " + name + "\n"
+                undefs += "#endif\n"
+        return undefs
+
     def append_file_content(self, filename, origin_file):
         res = ""
         content = []
@@ -60,10 +82,32 @@ class OpenCL2CHeaders(object):
         kernel_name = name[:name.find('.cl')]
         res = '{{"{}",\n(std::string) R"__krnl(\n'.format(kernel_name)
         content = self.append_file_content(filename, filename)
+        content += self.append_undefs(filename)
         max_lines = 200
         max_characters = 16350
         characters = 1  # Newline character above
 
+        comment_regexp = re.compile(r'(^)?[^\S\n]*/(?:\*(.*?)\*/[^\S\n]*|/[^\n]*)($)?', re.DOTALL | re.MULTILINE)
+
+        def comment_replacer(match):
+            begin, mid, end = match.group(1,2,3)
+            if mid is None:
+                return ''
+            elif begin is not None or end is not None:
+                return ''
+            elif '\n' in mid:
+                return '\n'
+            else:
+                return ' '
+
+            return
+
+        # Remove comments
+        content = comment_regexp.sub(comment_replacer, content)
+        # Remove empty lines
+        content = os.linesep.join([s for s in content.splitlines() if s])
+        # Remove multiple spaces
+        content = re.sub(' +', ' ', content)
         for i, line in enumerate(content.split('\n')):
             if (i + 1) % max_lines == 0 or characters + len(line) + 1 > max_characters:
                 res += ')__krnl"\n + R"__krnl('

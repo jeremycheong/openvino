@@ -1,21 +1,20 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "common_test_utils/data_utils.hpp"
-#include <gtest/gtest.h>
-#include "mkldnn_graph.h"
-
 #include "test_graph.hpp"
 
+#include "common_test_utils/data_utils.hpp"
 #include "single_layer_common.hpp"
-#include <mkldnn_extension_utils.h>
 #include "tests_common.hpp"
-#include <cpp/ie_cnn_net_reader.h>
+#include <ie_core.hpp>
 
 using namespace ::testing;
 using namespace std;
 using namespace mkldnn;
+
+constexpr auto depthwise_scale_shift = mkldnn::algorithm::depthwise_scale_shift;
+constexpr auto depthwise_prelu = mkldnn::algorithm::depthwise_prelu;
 
 struct conv_params {
     size_t krn_w;
@@ -237,9 +236,6 @@ protected:
             conv_depthwise_fusing_test_params p = ::testing::WithParamInterface<conv_depthwise_fusing_test_params>::GetParam();
             std::string model = getModel(p);
 
-            InferenceEngine::CNNNetReader net_reader;
-            ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
-
             size_t conv_w_size = p.conv.krn_w * p.conv.krn_h * p.conv.out_c * p.in.c / p.conv.grp_c + p.conv.out_c; // conv weights + biases
 
             size_t array_size =  p.isBroadcast ? 1 : p.conv.out_c;
@@ -251,10 +247,12 @@ protected:
             CommonTestUtils::fill_data_sine((float *) weights->buffer(), weights->size() / sizeof(float), 5, 10, 0.5);
             InferenceEngine::TBlob<uint8_t>::Ptr weights_ptr = InferenceEngine::TBlob<uint8_t>::Ptr(weights);
 
-            net_reader.SetWeights(weights_ptr);
+            InferenceEngine::Core core;
+            InferenceEngine::CNNNetwork network;
+            ASSERT_NO_THROW(network = core.ReadNetwork(model, weights_ptr));
 
             MKLDNNGraphTestClass graph;
-            graph.CreateGraph(net_reader.getNetwork());
+            graph.CreateGraph(network);
 
             auto& nodes = graph.getNodes();
             nodes = graph.getNodes();
@@ -262,14 +260,14 @@ protected:
                 ASSERT_EQ(nodes.size(), 3);
                 ASSERT_EQ(nodes[0].get()->getType(), MKLDNNPlugin::Type::Input);
                 ASSERT_EQ(nodes[1].get()->getType(), MKLDNNPlugin::Type::Convolution);
-                ASSERT_TRUE(nodes[1].get()->isFusedWith(MKLDNNPlugin::Type::Depthwise));
+                ASSERT_TRUE(nodes[1].get()->isFusedWith(MKLDNNPlugin::Type::Eltwise));
                 ASSERT_EQ(nodes[2].get()->getType(), MKLDNNPlugin::Type::Output);
             } else {
                 ASSERT_EQ(nodes.size(), 5);
                 ASSERT_EQ(nodes[0].get()->getType(), MKLDNNPlugin::Type::Input);
                 ASSERT_EQ(nodes[1].get()->getType(), MKLDNNPlugin::Type::Reorder);
                 ASSERT_EQ(nodes[2].get()->getType(), MKLDNNPlugin::Type::Convolution);
-                ASSERT_TRUE(nodes[2].get()->isFusedWith(MKLDNNPlugin::Type::Depthwise));
+                ASSERT_TRUE(nodes[2].get()->isFusedWith(MKLDNNPlugin::Type::Eltwise));
                 ASSERT_EQ(nodes[3].get()->getType(), MKLDNNPlugin::Type::Reorder);
                 ASSERT_EQ(nodes[4].get()->getType(), MKLDNNPlugin::Type::Output);
             }
@@ -289,7 +287,7 @@ protected:
             srcs.insert(std::pair<std::string, InferenceEngine::Blob::Ptr>("in1", src));
 
             InferenceEngine::OutputsDataMap out;
-            out = net_reader.getNetwork().getOutputsInfo();
+            out = network.getOutputsInfo();
             InferenceEngine::BlobMap outputBlobs;
 
             std::pair<std::string, InferenceEngine::DataPtr> item = *out.begin();
@@ -309,7 +307,7 @@ protected:
             ref_conv_depthwise(*srcPtr, (const float *)weights->buffer(), dst_ref, p);
 
             compare(*output, dst_ref);
-        } catch (const InferenceEngine::details::InferenceEngineException &e) {
+        } catch (const InferenceEngine::Exception &e) {
             FAIL() << e.what();
         }
     }

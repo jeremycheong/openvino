@@ -1,10 +1,10 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
 #include <cmath>
 #include <ie_blob.h>
-#include <ie_layers_property.hpp>
+#include <legacy/ie_layers_property.hpp>
 #include <ie_precision.hpp>
 #include <precision_utils.h>
 #include <gtest/gtest.h>
@@ -55,7 +55,7 @@ void GenRandomDataCommon(Blob::Ptr blob) {
             tempSum +=val;
         }
     } else {
-        THROW_IE_EXCEPTION << blob->getTensorDesc().getPrecision() << " is not supported by GenRandomDataCommon";
+        IE_THROW() << blob->getTensorDesc().getPrecision() << " is not supported by GenRandomDataCommon";
     }
 }
 
@@ -68,8 +68,10 @@ BufferWrapper::BufferWrapper(const Blob::Ptr& blob, Precision _precision) : prec
         fp32_ptr = blob->buffer().as<float*>();
     } else if (precision == Precision::I32) {
         i32_ptr = blob->buffer().as<int32_t*>();
+    } else if (precision == Precision::U8) {
+        u8_ptr = blob->buffer().as<uint8_t*>();
     } else {
-        THROW_IE_EXCEPTION << "Unsupported precision for compare: " << precision;
+        IE_THROW() << "Unsupported precision for compare: " << precision;
     }
 }
 
@@ -78,6 +80,8 @@ float BufferWrapper::operator[](size_t index) {
         return PrecisionUtils::f16tof32(fp16_ptr[index]);
     } else if (precision == Precision::I32) {
         return i32_ptr[index];
+    } else if (precision == Precision::U8) {
+        return u8_ptr[index];
     }
     return fp32_ptr[index];
 }
@@ -87,8 +91,9 @@ void BufferWrapper::insert(size_t index, float value) {
         fp16_ptr[index] = PrecisionUtils::f32tof16(value);
     } else if (precision == Precision::I32) {
         i32_ptr[index] = value;
-    }
-    else {
+    } else if (precision == Precision::U8) {
+        u8_ptr[index] = value;
+    } else {
         fp32_ptr[index] = value;
     }
 }

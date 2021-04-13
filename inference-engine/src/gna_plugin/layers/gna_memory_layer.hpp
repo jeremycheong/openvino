@@ -1,10 +1,10 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
 #pragma once
 
-#include "inference_engine.hpp"
+#include <legacy/ie_layers.h>
 
 namespace GNAPluginNS {
 /**
@@ -24,6 +24,12 @@ public:
     InferenceEngine::CNNLayerPtr getOutput() const { return outputLayer; }
     InferenceEngine::SizeVector getDims() const {
         return inputLayer->outData.front()->getDims();
+    }
+    /**
+     * @brief Reset the gna memory
+     */
+    void Reset() {
+        std::memset(gna_ptr, 0, reserved_size);
     }
 
     /**
@@ -45,5 +51,9 @@ public:
      * gna memory of this offset from gna_ptr
      */
     size_t  reserved_offset = 0;
+    /**
+     * scale factor to gna memory layer
+     */
+    float scale_factor = 1.0f;
 };
 }  // namespace GNAPluginNS

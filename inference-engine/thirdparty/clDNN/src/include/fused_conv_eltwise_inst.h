@@ -1,18 +1,6 @@
-/*
-// Copyright (c) 2016 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma once
@@ -33,13 +21,11 @@ public:
         : parent(prim, prog),
           split(this->get_primitive()->split()),
           depthwise_sep_opt(false),
-          transposed(false),
-          conv_input_qf(this->get_primitive()->conv.input_quantization_factor),
-          conv_output_qf(this->get_primitive()->conv.output_quantization_factor) {
+          transposed(false) {
         if (get_primitive()->eltw.with_activation) {
             auto slope = get_primitive()->eltw.activation_negative_slope;
             if (slope == 0.f) {
-                this->add_fused_activation(activation_func::relu, {});
+                this->add_fused_activation(activation_func::relu, {0.0f, 0.0f});
             } else {
                 this->add_fused_activation(activation_func::relu_negative_slope, { slope, 0.f });
             }
@@ -76,46 +62,12 @@ public:
         return get_dependency(desc->input.size() + this->get_split() + idx);
     }
 
-    program_node& weights_quantization_factors(size_t idx = 0) const {
-        if (static_cast<int32_t>(idx) >= this->get_split())
-            throw std::range_error("quantization factor offset too big");
-
-        return get_dependency(desc->input.size() + (1 + 1 * bias_term()) * this->get_split() + idx);
-    }
-
-    program_node& conv_output_calibration_factors(size_t idx = 0) const {
-        if (static_cast<int32_t>(idx) >= this->get_split())
-            throw std::range_error("calibration factor offset too big");
-
-        return get_dependency(desc->input.size() +
-                              (1 + 1 * bias_term() + 1 * weights_quantization_term()) * this->get_split() + idx);
-    }
-
-    program_node& eltw_output_calibration_factors() const {
-        return get_dependency(desc->input.size() + (1 + 1 * bias_term() + 1 * weights_quantization_term() +
-                                                    1 * conv_output_calibration_term()) *
-                                                       this->get_split());
-    }
-
     bool bias_term() const { return get_primitive()->conv.bias.size() > 0; }
-
-    bool weights_quantization_term() const { return get_primitive()->conv.weights_quantization_factors.size() > 0; }
-
-    bool conv_output_calibration_term() const { return get_primitive()->conv.output_calibration_factors.size() > 0; }
-
-    bool eltw_output_calibration_term() const { return get_primitive()->eltw.output_calibration_factors.size() > 0; }
-
-    float get_conv_input_qf() const { return conv_input_qf; }
-    float get_conv_output_qf() const { return conv_output_qf; }
-    float get_eltw_output_qf() const { return eltw_output_qf; }
 
 private:
     int32_t split;
     bool depthwise_sep_opt;
     bool transposed;
-    float conv_input_qf;
-    float conv_output_qf;
-    float eltw_output_qf;
 };
 
 using fused_conv_eltwise_node = typed_program_node<fused_conv_eltwise>;
@@ -145,34 +97,7 @@ public:
         return dep_memory(2 + node.get_split() + index);
     }
 
-    memory_impl& weights_quantization_factors_memory(size_t index) const {
-        if (static_cast<int32_t>(index) >= node.get_split())
-            throw std::range_error("quantization factors offset too big");
-
-        return dep_memory(2 + (1 + 1 * bias_term()) * node.get_split() + index);
-    }
-
-    memory_impl& output_calibration_factors_memory(size_t index) const {
-        if (static_cast<int32_t>(index) >= node.get_split())
-            throw std::range_error("quantization factors offset too big");
-
-        return dep_memory(2 + (1 + 1 * bias_term() + 1 * weights_quantization_factors_term()) * node.get_split() +
-                          index);
-    }
-
-    memory_impl& eltw_output_calibration_factors_memory() const {
-        return dep_memory(2 + (1 + 1 * bias_term() + 1 * weights_quantization_factors_term() +
-                               1 * conv_output_calibration_factors_term()) *
-                                  node.get_split());
-    }
-
     bool bias_term() const { return node.bias_term(); }
-
-    bool weights_quantization_factors_term() const { return node.weights_quantization_term(); }
-
-    bool conv_output_calibration_factors_term() const { return node.conv_output_calibration_term(); }
-
-    bool eltw_output_calibration_factors_term() const { return node.eltw_output_calibration_term(); }
 };
 
 using fused_conv_eltwise_inst = typed_primitive_inst<fused_conv_eltwise>;

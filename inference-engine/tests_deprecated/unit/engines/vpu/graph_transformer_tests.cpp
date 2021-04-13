@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -167,7 +167,7 @@ void GraphTransformerTest::SetUp() {
         consoleOutput());
 
     stageBuilder = std::make_shared<StageBuilder>();
-    frontEnd = std::make_shared<FrontEnd>(stageBuilder);
+    frontEnd = std::make_shared<FrontEnd>(stageBuilder, &_mockCore);
     backEnd = std::make_shared<BackEnd>();
     passManager = std::make_shared<PassManager>(stageBuilder, backEnd);
 }

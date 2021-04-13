@@ -1,18 +1,6 @@
-/*
-// Copyright (c) 2016 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
 
 #include "generic_layer_inst.h"
 #include "kernel.h"
@@ -39,8 +27,8 @@ struct generic_layer_gpu : typed_primitive_impl<generic_layer> {
                   outer.get_primitive()->generic_params.clKernel->kernelString,
                   arg.get_program().get_id()) {}
 
-    event_impl::ptr execute_impl(const std::vector<event_impl::ptr>& events, generic_layer_inst& instance) override {
-        uint32_t net_id = instance.get_network().get_id();
+    void set_arguments_impl(generic_layer_inst& instance) override {
+        auto net_id = instance.get_network().get_id();
         gpu::kernel::kernel_arguments_data args;
         args.scalars = &_cl_kernel_data.scalars;
 
@@ -48,8 +36,18 @@ struct generic_layer_gpu : typed_primitive_impl<generic_layer> {
             args.inputs.push_back((memory_impl::cptr) &instance.input_memory(i));
         }
         args.output = (memory_impl::cptr) &instance.output_memory();
+        _kernel.set_arguments(net_id, _cl_kernel_data, args);
+    }
+
+    void cleanup_impl(generic_layer_inst& instance) override {
+        auto net_id = instance.get_network().get_id();
+        _kernel.cleanup(net_id);
+    }
+
+    event_impl::ptr execute_impl(const std::vector<event_impl::ptr>& events, generic_layer_inst& instance) override {
+        uint32_t net_id = instance.get_network().get_id();
         _kernel.set_output_event(net_id, instance.node.is_output());
-        return _kernel.run(net_id, _cl_kernel_data, events, args);
+        return _kernel.run(net_id, _cl_kernel_data, events);
     }
 };
 

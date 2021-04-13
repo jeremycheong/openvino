@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -287,7 +287,7 @@ static XLinkError_t getLinkByStreamId(streamId_t streamId, xLinkDesc_t** out_lin
     linkId_t id = EXTRACT_LINK_ID(streamId);
     *out_link = getLinkById(id);
 
-    ASSERT_XLINK(*out_link != NULL);
+    XLINK_RET_ERR_IF(*out_link == NULL, X_LINK_ERROR);
     XLINK_RET_ERR_IF(getXLinkState(*out_link) != XLINK_UP,
                     X_LINK_COMMUNICATION_NOT_OPEN);
 

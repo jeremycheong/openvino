@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -16,6 +16,8 @@
 #include <vpu/stage_builder.hpp>
 #include <vpu/middleend/pass_manager.hpp>
 #include <vpu/backend/backend.hpp>
+
+#include <unit_test_utils/mocks/cpp_interfaces/interface/mock_icore.hpp>
 
 namespace vpu {
 
@@ -196,6 +198,7 @@ public:
     TestModel CreateTestModel(const DataDesc& dataDesc);
 
 private:
+    MockICore  _mockCore;
     Logger::Ptr _log;
     std::list<ModelPtr> _models;
 };

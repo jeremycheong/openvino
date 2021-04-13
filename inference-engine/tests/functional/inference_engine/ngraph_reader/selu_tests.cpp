@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -6,7 +6,7 @@
 #include "ngraph_reader_tests.hpp"
 TEST_F(NGraphReaderTests, ReadSeluNetwork) {
     std::string model = R"V0G0N(
-<net name="Activation" version="10">
+<net name="Network" version="10">
     <layers>
         <layer id="0" name="in1" type="Parameter"  version="opset1">
             <data element_type="f32" shape="1,3,22,22"/>
@@ -20,7 +20,7 @@ TEST_F(NGraphReaderTests, ReadSeluNetwork) {
             </output>
         </layer>
         <layer id="1" name="const1" type="Const" version="opset1">
-            <data offset="0" size="4"/>
+            <data element_type="f32" offset="0" shape="1" size="4"/>
             <output>
                 <port id="0" precision="FP32">
                     <dim>1</dim>
@@ -28,7 +28,7 @@ TEST_F(NGraphReaderTests, ReadSeluNetwork) {
             </output>
         </layer>
         <layer id="2" name="const2" type="Const" version="opset1">
-            <data offset="4" size="4"/>
+            <data element_type="f32" offset="4" shape="1" size="4"/>
             <output>
                 <port id="0" precision="FP32">
                     <dim>1</dim>
@@ -79,7 +79,7 @@ TEST_F(NGraphReaderTests, ReadSeluNetwork) {
 </net>
 )V0G0N";
     std::string modelV5 = R"V0G0N(
-<net name="Activation" version="5" precision="FP32" batch="1">
+<net name="Network" version="5" precision="FP32" batch="1">
     <layers>
         <layer name="in1" type="Input" precision="FP32" id="0">
             <output>

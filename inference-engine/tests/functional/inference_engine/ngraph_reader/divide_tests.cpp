@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -8,7 +8,7 @@
 
 TEST_F(NGraphReaderTests, ReadDivideNetwork) {
     std::string model = R"V0G0N(
-<net name="Multiply" version="10">
+<net name="Network" version="10">
     <layers>
         <layer id="0" name="data" type="Parameter" version="opset1">
             <data element_type="f32" shape="1,64,112,112"/>
@@ -22,7 +22,7 @@ TEST_F(NGraphReaderTests, ReadDivideNetwork) {
             </output>
         </layer>
         <layer id="1" name="data1" type="Const" version="opset1">
-            <data offset="0" size="3211264"/>
+            <data element_type="f32" offset="0" shape="1,64,112,112" size="3211264"/>
             <output>
                 <port id="0" precision="FP32">
                     <dim>1</dim>

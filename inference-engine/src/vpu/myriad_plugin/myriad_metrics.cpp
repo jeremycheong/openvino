@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -9,8 +9,9 @@
 #include <vpu/utils/error.hpp>
 
 using namespace vpu::MyriadPlugin;
-using namespace InferenceEngine::VPUConfigParams;
-using namespace InferenceEngine::PluginConfigParams;
+using namespace InferenceEngine;
+using namespace VPUConfigParams;
+using namespace PluginConfigParams;
 
 //------------------------------------------------------------------------------
 // Implementation of methods of class MyriadMetrics
@@ -25,21 +26,30 @@ MyriadMetrics::MyriadMetrics() {
         METRIC_KEY(OPTIMIZATION_CAPABILITIES),
         METRIC_KEY(RANGE_FOR_ASYNC_INFER_REQUESTS),
         METRIC_KEY(DEVICE_THERMAL),
+        METRIC_KEY(DEVICE_ARCHITECTURE),
+        METRIC_KEY(IMPORT_EXPORT_SUPPORT),
     };
 
 IE_SUPPRESS_DEPRECATED_START
     _supportedConfigKeys = {
+        MYRIAD_ENABLE_HW_ACCELERATION,
+        MYRIAD_ENABLE_RECEIVING_TENSOR_TIME,
+        MYRIAD_CUSTOM_LAYERS,
+        MYRIAD_ENABLE_FORCE_RESET,
+        MYRIAD_THROUGHPUT_STREAMS,
+
+        // deprecated
         KEY_VPU_HW_STAGES_OPTIMIZATION,
-        KEY_LOG_LEVEL,
         KEY_VPU_PRINT_RECEIVE_TENSOR_TIME,
         KEY_VPU_CUSTOM_LAYERS,
-        KEY_VPU_IGNORE_IR_STATISTIC,
         KEY_VPU_MYRIAD_FORCE_RESET,
         KEY_VPU_MYRIAD_PLATFORM,
-        KEY_EXCLUSIVE_ASYNC_REQUESTS,
-        KEY_PERF_COUNT,
-        KEY_CONFIG_FILE,
-        KEY_DEVICE_ID
+
+        CONFIG_KEY(LOG_LEVEL),
+        CONFIG_KEY(EXCLUSIVE_ASYNC_REQUESTS),
+        CONFIG_KEY(PERF_COUNT),
+        CONFIG_KEY(CONFIG_FILE),
+        CONFIG_KEY(DEVICE_ID)
     };
 IE_SUPPRESS_DEPRECATED_END
 
@@ -106,10 +116,18 @@ const std::unordered_set<std::string>& MyriadMetrics::OptimizationCapabilities()
     return _optimizationCapabilities;
 }
 
+std::string MyriadMetrics::DeviceArchitecture(const std::map<std::string, InferenceEngine::Parameter> & options) const {
+    // TODO: Task 49309. Return same architecture for devices which can share same cache
+    // E.g. when device "MYRIAD.ma2480-1" is loaded, options.at("DEVICE_ID") will be "ma2480-1"
+    // For DEVICE_ID="ma2480-0" and DEVICE_ID="ma2480-1" this method shall return same string, like "ma2480"
+    // In this case inference engine will be able to reuse cached model and total reduce load network time
+    return "MYRIAD";
+}
+
 RangeType MyriadMetrics::RangeForAsyncInferRequests(
     const std::map<std::string, std::string>& config) const {
 
-    auto throughput_streams_str = config.find(KEY_VPU_MYRIAD_THROUGHPUT_STREAMS);
+    auto throughput_streams_str = config.find(ie::MYRIAD_THROUGHPUT_STREAMS);
     if (throughput_streams_str != config.end()) {
         try {
             int throughput_streams = std::stoi(throughput_streams_str->second);
@@ -118,7 +136,7 @@ RangeType MyriadMetrics::RangeForAsyncInferRequests(
             }
         }
         catch(...) {
-            THROW_IE_EXCEPTION << "Invalid config value for VPU_MYRIAD_THROUGHPUT_STREAMS, can't cast to int";
+            IE_THROW() << "Invalid config value for MYRIAD_THROUGHPUT_STREAMS, can't cast to int";
         }
     }
 

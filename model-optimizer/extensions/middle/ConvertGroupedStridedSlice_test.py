@@ -1,22 +1,10 @@
-"""
- Copyright (C) 2018-2020 Intel Corporation
-
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
-      http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
-"""
+# Copyright (C) 2018-2021 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 
 import unittest
 
 import numpy as np
+from generator import generator, generate
 
 from extensions.middle.ConvertGroupedStridedSlice import ConvertGroupedStridedSlice
 from mo.front.common.partial_infer.utils import int64_array
@@ -35,14 +23,25 @@ nodes_attributes = {
 
     # StridedSlice layers
     'sslice_1': {'type': None, 'kind': 'op', 'op': 'StridedSlice', 'slices': None,
-                 'shrink_axis_mask': np.array([0, 0, 0, 0])},
+                 'shrink_axis_mask': np.array([0, 0, 0, 0]), 'begin_mask': int64_array([1, 1, 1, 1]),
+                 'end_mask': int64_array([1, 1, 1, 1]), 'new_axis_mask': int64_array([0, 0, 0, 0]),
+                 'ellipsis_mask': int64_array([0])},
     'sslice_1_data': {'value': None, 'shape': None, 'kind': 'data'},
     'sslice_2': {'type': None, 'kind': 'op', 'op': 'StridedSlice', 'slices': None,
-                 'shrink_axis_mask': np.array([0, 0, 0, 0])},
+                 'shrink_axis_mask': np.array([0, 0, 0, 0]), 'begin_mask': int64_array([1, 1, 1, 1]),
+                 'end_mask': int64_array([1, 1, 1, 1]), 'new_axis_mask': int64_array([0, 0, 0, 0]),
+                 'ellipsis_mask': int64_array([0])},
     'sslice_2_data': {'value': None, 'shape': None, 'kind': 'data'},
     'sslice_3': {'type': None, 'kind': 'op', 'op': 'StridedSlice', 'slices': None,
-                 'shrink_axis_mask': np.array([0, 0, 0, 0])},
+                 'shrink_axis_mask': np.array([0, 0, 0, 0]), 'begin_mask': int64_array([1, 1, 1, 1]),
+                 'end_mask': int64_array([1, 1, 1, 1]), 'new_axis_mask': int64_array([0, 0, 0, 0]),
+                 'ellipsis_mask': int64_array([0])},
     'sslice_3_data': {'value': None, 'shape': None, 'kind': 'data'},
+    'sslice_4': {'type': None, 'kind': 'op', 'op': 'StridedSlice', 'slices': None,
+                 'shrink_axis_mask': np.array([0, 0, 0, 0]), 'begin_mask': int64_array([1, 1, 1, 1]),
+                 'end_mask': int64_array([1, 1, 1, 1]), 'new_axis_mask': int64_array([0, 0, 0, 0]),
+                 'ellipsis_mask': int64_array([0])},
+    'sslice_4_data': {'value': None, 'shape': None, 'kind': 'data'},
 
     # Split layer
     'axis_const': {'kind': 'op'},
@@ -80,9 +79,36 @@ nodes_attributes = {
     'sslice_2/Unsqueeze_new_data': {'value': None, 'shape': None, 'kind': 'data'},
     'sslice_2/unsqueeze_const': {'type': 'Const', 'kind': 'op', 'op': 'Const', 'value': int64_array([2])},
     'sslice_2/unsqueeze_const_data': {'kind': 'data', 'value': None, 'shape': None},
+
+    # Activations
+    'abs': {'type': None, 'value': None, 'kind': 'op', 'op': 'Abs'},
+    'abs_data': {'value': None, 'shape': None, 'kind': 'data'},
+    'relu': {'type': None, 'value': None, 'kind': 'op', 'op': 'ReLU'},
+    'relu_data': {'value': None, 'shape': None, 'kind': 'data'},
+    'erf': {'type': None, 'value': None, 'kind': 'op', 'op': 'Erf'},
+    'erf_data': {'value': None, 'shape': None, 'kind': 'data'},
+    'gelu': {'type': None, 'value': None, 'kind': 'op', 'op': 'Gelu'},
+    'gelu_data': {'value': None, 'shape': None, 'kind': 'data'},
 }
 
+one_strided_slice_case_node_attributes = {
+    'placeholder': {'type': 'Parameter', 'kind': 'op', 'op': 'Parameter'},
+    'placeholder_data': {'value': None, 'shape': None, 'kind': 'data', 'data_type': None},
+    'sslice': {'type': None, 'kind': 'op', 'op': 'StridedSlice', 'slices': None,
+               'shrink_axis_mask': np.array([0, 0, 0, 0])},
+    'sslice_data': {'value': None, 'shape': None, 'kind': 'data'},
+    'op_output': {'kind': 'op', 'op': 'Result'},
+}
 
+one_strided_slice_case_edges = [
+    ('placeholder', 'placeholder_data'),
+    ('placeholder_data', 'sslice'),
+    ('sslice', 'sslice_data'),
+    ('sslice_data', 'op_output'),
+]
+
+
+@generator
 class ConvertGroupedStridedSliceTests(unittest.TestCase):
     def test_1(self):
         graph = build_graph(nodes_attributes,
@@ -604,6 +630,141 @@ class ConvertGroupedStridedSliceTests(unittest.TestCase):
         (flag, resp) = compare_graphs(graph, graph_ref, 'concat_1_data', check_op_attrs=True)
         self.assertTrue(flag, resp)
 
+    # Test for the case when there is only 1 StridedSlice.
+    @generate(*[(np.array([1, 227, 227, 54]),
+                 np.array([slice(0, 1, 1), slice(0, 227, 1), slice(0, 227, 1), slice(0, 18, 1)]),
+                 np.array([1, 227, 227, 18])),
+                (np.array([57, 16, 100, 23]),
+                 np.array([slice(3, 16, 1), slice(0, 16, 1), slice(0, 100, 1), slice(0, 23, 1)]),
+                 np.array([13, 16, 100, 23])),
+                (np.array([16, 800, 1024, 17]),
+                 np.array([slice(0, 16, 1), slice(0, 800, 1), slice(13, 817, 1), slice(0, 17, 1)]),
+                 np.array([16, 800, 804, 17]))])
+    def test_9(self, input_shape, slices, output_shape):
+        graph = build_graph(nodes_attrs=one_strided_slice_case_node_attributes,
+                            edges=one_strided_slice_case_edges,
+                            update_attributes={
+                                'placeholder_data': {'shape': input_shape},
+                                'sslice': {'slices': slices},
+                                'sslice_data': {'shape': output_shape},
+                            })
+        graph.graph['layout'] = 'NHWC'
+        graph_ref = build_graph(nodes_attrs=one_strided_slice_case_node_attributes,
+                                edges=one_strided_slice_case_edges,
+                                update_attributes={
+                                    'placeholder_data': {'shape': input_shape},
+                                    'sslice': {'slices': slices},
+                                    'sslice_data': {'shape': output_shape},
+                                })
+        pattern = ConvertGroupedStridedSlice()
+        pattern.find_and_replace_pattern(graph)
+        (flag, resp) = compare_graphs(graph, graph_ref, 'op_output', check_op_attrs=True)
+        self.assertTrue(flag, resp)
+
+    # Test for case when
+    # 1) There are 4 StridedSlice operations.
+    # 2) 2 of StridedSlice have the same data.
+    # 3) 2 others StridedSlice have the same data.
+    # 4) All StridedSlice operations outputs are consumed by different operations.
+    def test_10(self):
+        graph = build_graph(nodes_attributes,
+                            [('placeholder_1', 'placeholder_1_data'),
+                             ('placeholder_1_data', 'sslice_1'),
+                             ('sslice_1', 'sslice_1_data'),
+                             ('placeholder_1_data', 'sslice_2'),
+                             ('sslice_2', 'sslice_2_data'),
+                             ('placeholder_1_data', 'sslice_3'),
+                             ('sslice_3', 'sslice_3_data'),
+                             ('placeholder_1_data', 'sslice_4'),
+                             ('sslice_4', 'sslice_4_data'),
+                             ('sslice_1_data', 'abs'),
+                             ('abs', 'abs_data'),
+                             ('sslice_2_data', 'relu'),
+                             ('relu', 'relu_data'),
+                             ('sslice_3_data', 'erf'),
+                             ('erf', 'erf_data'),
+                             ('sslice_4_data', 'gelu'),
+                             ('gelu', 'gelu_data'),
+                             ('abs_data', 'concat_1'),
+                             ('relu_data', 'concat_1'),
+                             ('erf_data', 'concat_1'),
+                             ('gelu_data', 'concat_1'),
+                             ('concat_1', 'concat_1_data'),
+                             ('concat_1_data', 'op_output')
+                             ],
+                            {'placeholder_1_data': {'shape': np.array([1, 54, 54, 3])},
+                             'sslice_1': {'slices': np.array(
+                                 [slice(0, 1, 1), slice(0, 30, 1), slice(0, 54, 1), slice(0, 3, 1)])},
+                             'sslice_1_data': {'shape': np.array([1, 30, 54, 3])},
+                             'sslice_2': {'slices': np.array(
+                                 [slice(0, 1, 1), slice(30, 54, 1), slice(0, 54, 1), slice(0, 3, 1)])},
+                             'sslice_2_data': {'shape': np.array([1, 24, 54, 3])},
+                             'sslice_3': {'slices': np.array(
+                                 [slice(0, 1, 1), slice(0, 30, 1), slice(0, 54, 1), slice(0, 3, 1)])},
+                             'sslice_3_data': {'shape': np.array([1, 30, 54, 3])},
+                             'sslice_4': {'slices': np.array(
+                                 [slice(0, 1, 1), slice(30, 54, 1), slice(0, 54, 1), slice(0, 3, 1)])},
+                             'sslice_4_data': {'shape': np.array([1, 24, 54, 3])},
+                             'concat_1_data': {'shape': np.array([1, 108, 54, 3])},
+                             'abs_data': {'shape': np.array([1, 30, 54, 3])},
+                             'relu_data': {'shape': np.array([1, 24, 54, 3])},
+                             'erf_data': {'shape': np.array([1, 30, 54, 3])},
+                             'gelu_data': {'shape': np.array([1, 24, 54, 3])},
+                             })
+        graph.graph['layout'] = 'NHWC'
+
+        graph_ref = build_graph(nodes_attributes,
+                                [('placeholder_1', 'placeholder_1_data'),
+                                 ('placeholder_1_data', 'split_1'),
+                                 ('split_1', 'split_1_data'),
+                                 ('split_1', 'split_2_data'),
+                                 ('placeholder_1_data', 'sslice_3'),
+                                 ('sslice_3', 'sslice_3_data'),
+                                 ('placeholder_1_data', 'sslice_4'),
+                                 ('sslice_4', 'sslice_4_data'),
+                                 ('split_1_data', 'abs'),
+                                 ('abs', 'abs_data'),
+                                 ('split_2_data', 'relu'),
+                                 ('relu', 'relu_data'),
+                                 ('sslice_3_data', 'erf'),
+                                 ('erf', 'erf_data'),
+                                 ('sslice_4_data', 'gelu'),
+                                 ('gelu', 'gelu_data'),
+                                 ('abs_data', 'concat_1'),
+                                 ('relu_data', 'concat_1'),
+                                 ('erf_data', 'concat_1'),
+                                 ('gelu_data', 'concat_1'),
+                                 ('concat_1', 'concat_1_data'),
+
+                                 ('axis_const', 'axis_const_data'),
+                                 ('split_dim_const', 'split_dim_const_data'),
+                                 ('axis_const_data', 'split_1', {'in': 1}),
+                                 ('split_dim_const_data', 'split_1', {'in': 2}),
+
+                                 ('concat_1_data', 'op_output')
+                                 ],
+                                {'placeholder_1_data': {'shape': np.array([1, 54, 54, 3])},
+                                 'split_1_data': {'shape': np.array([1, 30, 54, 3])},
+                                 'split_2_data': {'shape': np.array([1, 24, 54, 3])},
+                                 'sslice_3': {'slices': np.array(
+                                     [slice(0, 1, 1), slice(0, 30, 1), slice(0, 54, 1), slice(0, 3, 1)])},
+                                 'sslice_3_data': {'shape': np.array([1, 30, 54, 3])},
+                                 'sslice_4': {'slices': np.array(
+                                     [slice(0, 1, 1), slice(30, 54, 1), slice(0, 54, 1), slice(0, 3, 1)])},
+                                 'sslice_4_data': {'shape': np.array([1, 24, 54, 3])},
+                                 'abs_data': {'shape': np.array([1, 30, 54, 3])},
+                                 'relu_data': {'shape': np.array([1, 24, 54, 3])},
+                                 'erf_data': {'shape': np.array([1, 30, 54, 3])},
+                                 'gelu_data': {'shape': np.array([1, 24, 54, 3])},
+                                 'axis_const': {'value': 1},
+                                 'concat_1_data': {'shape': np.array([1, 108, 54, 3])},
+                                 })
+
+        pattern = ConvertGroupedStridedSlice()
+        pattern.find_and_replace_pattern(graph)
+        (flag, resp) = compare_graphs(graph, graph_ref, 'concat_1_data', check_op_attrs=True)
+        self.assertTrue(flag, resp)
+
 
 class AddReshapeAfterStridedSliceTests(unittest.TestCase):
     def test_ss_1_shrink_last(self):
@@ -622,7 +783,7 @@ class AddReshapeAfterStridedSliceTests(unittest.TestCase):
                                           'shrink_axis_mask': [0, 0, 1, 0],
                                           'new_axis_mask': np.array([0, 0, 0, 0])},
                              'sslice_1_data': {'shape': np.array([1, 227, 54])},
-                             })
+                             }, nodes_with_edges_only=True)
         graph.graph['layout'] = 'NHWC'
 
         graph_ref = build_graph(nodes_attributes,
@@ -644,13 +805,11 @@ class AddReshapeAfterStridedSliceTests(unittest.TestCase):
                                               'new_axis_mask': np.array([0, 0, 0, 0])},
                                  'sslice_1_data': {'shape': np.array([1, 227, 1, 54])},
                                  'sslice_1/Squeeze_shrink_data': {'shape': np.array([1, 227, 54])}
-                                 })
+                                 }, nodes_with_edges_only=True)
 
         ConvertGroupedStridedSlice().add_squeeze_for_shrink(graph, Node(graph, 'sslice_1'))
 
         (flag, resp) = compare_graphs(graph, graph_ref, 'sslice_1_data', check_op_attrs=True)
-        graph.clear()
-        graph_ref.clear()
         self.assertTrue(flag, resp)
 
     def test_ss_1_shrink(self):
@@ -672,7 +831,7 @@ class AddReshapeAfterStridedSliceTests(unittest.TestCase):
                                           'shrink_axis_mask': [0, 0, 1, 0],
                                           'new_axis_mask': np.array([0, 0, 0, 0])},
                              'sslice_2_data': {'shape': np.array([1, 227, 54])}
-                             })
+                             }, nodes_with_edges_only=True)
         graph.graph['layout'] = 'NHWC'
 
         graph_ref = build_graph(nodes_attributes,
@@ -697,13 +856,11 @@ class AddReshapeAfterStridedSliceTests(unittest.TestCase):
                                  'sslice_2_data': {'shape': np.array([1, 227, 1, 54])},
                                  'sslice_2/squeeze_const': {'value': np.array([2])},
                                  'sslice_2/Squeeze_shrink_data': {'shape': np.array([1, 227, 54])},
-                                 })
+                                 }, nodes_with_edges_only=True)
 
         ConvertGroupedStridedSlice().add_squeeze_for_shrink(graph, Node(graph, 'sslice_2'))
 
         (flag, resp) = compare_graphs(graph, graph_ref, 'op_output', check_op_attrs=True)
-        graph.clear()
-        graph_ref.clear()
         self.assertTrue(flag, resp)
 
     def test_ss_2_shrink(self):
@@ -725,7 +882,7 @@ class AddReshapeAfterStridedSliceTests(unittest.TestCase):
                                           'shrink_axis_mask': np.array([0, 1, 0, 1]),
                                           'new_axis_mask': np.array([0, 0, 0, 0])},
                              'sslice_2_data': {'shape': np.array([1, 227])}
-                             })
+                             }, nodes_with_edges_only=True)
         graph.graph['layout'] = 'NHWC'
 
         graph_ref = build_graph(nodes_attributes,
@@ -750,13 +907,11 @@ class AddReshapeAfterStridedSliceTests(unittest.TestCase):
                                  'sslice_2_data': {'shape': np.array([1, 1, 227, 1])},
                                  'sslice_2/squeeze_const': {'value': np.array([1, 3])},
                                  'sslice_2/Squeeze_shrink_data': {'shape': np.array([1, 227])},
-                                 })
+                                 }, nodes_with_edges_only=True)
 
         ConvertGroupedStridedSlice().add_squeeze_for_shrink(graph, Node(graph, 'sslice_2'))
 
         (flag, resp) = compare_graphs(graph, graph_ref, 'op_output', check_op_attrs=True)
-        graph.clear()
-        graph_ref.clear()
         self.assertTrue(flag, resp)
 
     def test_ss_1_new(self):
@@ -775,7 +930,7 @@ class AddReshapeAfterStridedSliceTests(unittest.TestCase):
                                           'shrink_axis_mask': np.array([0, 0, 0, 0, 0]),
                                           'new_axis_mask': np.array([0, 1, 0, 0, 0])},
                              'sslice_2_data': {'shape': np.array([1, 1, 227, 227, 54])}
-                             })
+                             }, nodes_with_edges_only=True)
         graph.graph['layout'] = 'NHWC'
 
         graph_ref = build_graph(nodes_attributes,
@@ -798,14 +953,12 @@ class AddReshapeAfterStridedSliceTests(unittest.TestCase):
                                  'sslice_2_data': {'shape': np.array([1, 227, 227, 54])},
                                  'sslice_2/unsqueeze_const': {'value': int64_array([1])},
                                  'sslice_2/Unsqueeze_new_data': {'shape': np.array([1, 1, 227, 227, 54])},
-                                 })
+                                 }, nodes_with_edges_only=True)
 
         pattern = ConvertGroupedStridedSlice()
         pattern.add_unsqueeze_for_new(graph, Node(graph, 'sslice_2'))
 
         (flag, resp) = compare_graphs(graph, graph_ref, 'sslice_2_data', check_op_attrs=True)
-        graph.clear()
-        graph_ref.clear()
         self.assertTrue(flag, resp)
 
     def test_ss_shrink_new(self):
@@ -827,7 +980,7 @@ class AddReshapeAfterStridedSliceTests(unittest.TestCase):
                                           'shrink_axis_mask': np.array([0, 0, 0, 1, 0]),
                                           'new_axis_mask': np.array([0, 1, 0, 0, 0])},
                              'sslice_2_data': {'shape': np.array([1, 1, 227, 54])}
-                             })
+                             }, nodes_with_edges_only=True)
         graph.graph['layout'] = 'NHWC'
 
         graph_ref = build_graph(nodes_attributes,
@@ -858,15 +1011,13 @@ class AddReshapeAfterStridedSliceTests(unittest.TestCase):
                                  'sslice_2/Unsqueeze_new_data': {'shape': np.array([1, 1, 227, 1, 54])},
                                  'sslice_2/squeeze_const': {'value': np.array([3])},
                                  'sslice_2/Squeeze_shrink_data': {'shape': np.array([1, 1, 227, 54])},
-                                 })
+                                 }, nodes_with_edges_only=True)
 
         pattern = ConvertGroupedStridedSlice()
         pattern.add_squeeze_for_shrink(graph, Node(graph, 'sslice_2'))
         pattern.add_unsqueeze_for_new(graph, Node(graph, 'sslice_2'))
 
         (flag, resp) = compare_graphs(graph, graph_ref, 'op_output', check_op_attrs=True)
-        graph.clear()
-        graph_ref.clear()
         self.assertTrue(flag, resp)
 
     # test case for strided slice that only shrinks dimension
@@ -886,7 +1037,7 @@ class AddReshapeAfterStridedSliceTests(unittest.TestCase):
                                  [slice(0, 1, 1), slice(0, 227, 1), slice(0, 1, 1), slice(0, 54, 1)]),
                                  'shrink_axis_mask': np.array([0, 0, 1, 0])},
                              'sslice_2_data': {'shape': np.array([1, 227, 54])}
-                             })
+                             }, nodes_with_edges_only=True)
         graph.graph['layout'] = 'NHWC'
 
         graph_ref = graph.copy()
@@ -894,8 +1045,6 @@ class AddReshapeAfterStridedSliceTests(unittest.TestCase):
         ConvertGroupedStridedSlice().find_and_replace_pattern(graph)
 
         (flag, resp) = compare_graphs(graph, graph_ref, 'sslice_2_data', check_op_attrs=True)
-        graph.clear()
-        graph_ref.clear()
         self.assertTrue(flag, resp)
 
     def test_ss_shrink_only_short(self):
@@ -914,7 +1063,7 @@ class AddReshapeAfterStridedSliceTests(unittest.TestCase):
                                  [slice(0, 1, 1), slice(0, 227, 1), slice(0, 1, 1), slice(0, 54, 1)]),
                                  'shrink_axis_mask': np.array([0, 0, 1])},
                              'sslice_2_data': {'shape': np.array([1, 227, 54])}
-                             })
+                             }, nodes_with_edges_only=True)
         graph.graph['layout'] = 'NHWC'
 
         graph_ref = graph.copy()
@@ -922,8 +1071,6 @@ class AddReshapeAfterStridedSliceTests(unittest.TestCase):
         ConvertGroupedStridedSlice().find_and_replace_pattern(graph)
 
         (flag, resp) = compare_graphs(graph, graph_ref, 'sslice_2_data', check_op_attrs=True)
-        graph.clear()
-        graph_ref.clear()
         self.assertTrue(flag, resp)
 
     def test_ss_shrink_only_long(self):
@@ -942,7 +1089,7 @@ class AddReshapeAfterStridedSliceTests(unittest.TestCase):
                                  [slice(0, 1, 1), slice(0, 227, 1), slice(0, 1, 1), slice(0, 54, 1)]),
                                  'shrink_axis_mask': np.array([0, 0, 1, 0, 0])},
                              'sslice_2_data': {'shape': np.array([1, 227, 54])}
-                             })
+                             }, nodes_with_edges_only=True)
         graph.graph['layout'] = 'NHWC'
 
         graph_ref = graph.copy()
@@ -950,73 +1097,77 @@ class AddReshapeAfterStridedSliceTests(unittest.TestCase):
         ConvertGroupedStridedSlice().find_and_replace_pattern(graph)
 
         (flag, resp) = compare_graphs(graph, graph_ref, 'sslice_2_data', check_op_attrs=True)
-        graph.clear()
-        graph_ref.clear()
         self.assertTrue(flag, resp)
 
-    # test case with 2 strided slices with the same parameters but different outputs
+    # test case when
+    # 1) There are 3 StridedSlice operations;
+    # 2) 2 of StridedSlice have the same attributes;
+    # 3) other StridedSlice have different attributes;
+    # 4) pair (some StridedSlice from the item 2, StridedSlice from the item 3) can be replaced by VariadicSplit.
     def test_1(self):
         graph = build_graph(nodes_attributes,
-                            [('placeholder_1', 'placeholder_1_data'),
-                             ('placeholder_1_data', 'sslice_1'),
-                             ('sslice_1', 'sslice_1_data'),
-                             ('placeholder_1_data', 'sslice_2'),
-                             ('sslice_2', 'sslice_2_data'),
-                             ('placeholder_1_data', 'sslice_3'),
-                             ('sslice_3', 'sslice_3_data'),
-                             ('sslice_1_data', 'concat_1'),
-                             ('sslice_2_data', 'concat_1'),
-                             ('sslice_3_data', 'placeholder_2'),
-                             ('placeholder_2', 'placeholder_2_data'),
-                             ('concat_1', 'concat_1_data'),
-                             ('concat_1_data', 'op_output'),
-                             ('placeholder_2_data', 'op_output')
-                             ],
-                            {'placeholder_1_data': {'shape': np.array([1, 227, 227, 54])},
-
-                             'sslice_1': {'slices': np.array(
-                                 [slice(0, 1, 1), slice(0, 227, 1), slice(0, 227, 1), slice(0, 27, 1)])},
-                             'sslice_1_data': {'shape': np.array([1, 227, 227, 27])},
-
-                             'sslice_2': {'slices': np.array(
-                                 [slice(0, 1, 1), slice(0, 227, 1), slice(0, 227, 1), slice(27, 54, 1)])},
-                             'sslice_2_data': {'shape': np.array([1, 227, 227, 27])},
-
-                             'sslice_3': {'slices': np.array(
-                                 [slice(0, 1, 1), slice(0, 227, 1), slice(0, 227, 1), slice(0, 27, 1)])},
-                             'sslice_3_data': {'shape': np.array([1, 227, 227, 27])},
-
-                             'concat_1_data': {'shape': np.array([1, 227, 227, 54])},
-                             })
+                            [
+                                ('placeholder_1', 'placeholder_1_data'),
+                                ('placeholder_1_data', 'sslice_1'),
+                                ('sslice_1', 'sslice_1_data'),
+                                ('placeholder_1_data', 'sslice_2'),
+                                ('sslice_2', 'sslice_2_data'),
+                                ('placeholder_1_data', 'sslice_3'),
+                                ('sslice_3', 'sslice_3_data'),
+                                ('sslice_1_data', 'concat_1'),
+                                ('sslice_2_data', 'concat_1'),
+                                ('sslice_3_data', 'concat_1'),
+                                ('concat_1', 'concat_1_data'),
+                                ('concat_1_data', 'op_output'),
+                            ],
+                            {
+                                'placeholder_1_data': {'shape': np.array([1, 227, 227, 54])},
+                                'sslice_1': {'slices': np.array([slice(0, 1, 1), slice(0, 227, 1), slice(0, 227, 1),
+                                                                 slice(0, 27, 1)])},
+                                'sslice_1_data': {'shape': np.array([1, 227, 227, 27])},
+                                'sslice_2': {'slices': np.array([slice(0, 1, 1), slice(0, 227, 1), slice(0, 227, 1),
+                                                                 slice(27, 54, 1)])},
+                                'sslice_2_data': {'shape': np.array([1, 227, 227, 27])},
+                                'sslice_3': {'slices': np.array([slice(0, 1, 1), slice(0, 227, 1), slice(0, 227, 1),
+                                                                 slice(0, 27, 1)])},
+                                'sslice_3_data': {'shape': np.array([1, 227, 227, 27])},
+                                'concat_1': {'axis': 3},
+                                'concat_1_data': {'shape': np.array([1, 227, 227, 81])},
+                            })
         graph.graph['layout'] = 'NHWC'
-
         graph_ref = build_graph(nodes_attributes,
-                                [('placeholder_1', 'placeholder_1_data'),
-                                 ('placeholder_1_data', 'split_1'),
-                                 ('split_1', 'split_1_data'),
-                                 ('split_1', 'split_2_data'),
-                                 ('split_1_data', 'concat_1'),
-                                 ('split_2_data', 'concat_1'),
-                                 ('split_1_data', 'placeholder_2'),
-                                 ('placeholder_2', 'placeholder_2_data'),
-                                 ('concat_1', 'concat_1_data'),
-                                 ('concat_1_data', 'op_output'),
-                                 ('placeholder_2_data', 'op_output'),
-
-                                 ('axis_const', 'axis_const_data'),
-                                 ('split_dim_const', 'split_dim_const_data'),
-                                 ('axis_const_data', 'split_1', {'in': 1}),
-                                 ('split_dim_const_data', 'split_1', {'in': 2}),
-                                 ],
-                                {'placeholder_1_data': {'shape': np.array([1, 227, 227, 54])},
-                                 'axis_const': {'value': 3},
-                                 'split_1_data': {'shape': np.array([1, 227, 227, 27])},
-                                 'split_2_data': {'shape': np.array([1, 227, 227, 27])},
-                                 'concat_1_data': {'shape': np.array([1, 227, 227, 54])},
-                                 })
-
+                                [
+                                    ('placeholder_1', 'placeholder_1_data'),
+                                    ('placeholder_1_data', 'sslice_3'),
+                                    ('sslice_3', 'sslice_3_data'),
+                                    ('placeholder_1_data', 'split_1'),
+                                    ('split_1', 'split_1_data'),
+                                    ('split_1', 'split_2_data'),
+                                    ('axis_const', 'axis_const_data'),
+                                    ('split_dim_const', 'split_dim_const_data'),
+                                    ('axis_const_data', 'split_1', {'in': 1}),
+                                    ('split_dim_const_data', 'split_1', {'in': 2}),
+                                    ('split_1_data', 'concat_1'),
+                                    ('split_2_data', 'concat_1'),
+                                    ('sslice_3_data', 'concat_1'),
+                                    ('concat_1', 'concat_1_data'),
+                                    ('concat_1_data', 'op_output')
+                                ],
+                                {
+                                    'placeholder_1_data': {'shape': np.array([1, 227, 227, 54])},
+                                    'sslice_3': {'slices': np.array([slice(0, 1, 1), slice(0, 227, 1), slice(0, 227, 1),
+                                                                     slice(0, 27, 1)])},
+                                    'sslice_3_data': {'shape': np.array([1, 227, 227, 27])},
+                                    'split_1_data': {'shape': np.array([1, 227, 227, 27])},
+                                    'split_2_data': {'shape': np.array([1, 227, 227, 27])},
+                                    'axis_const': {'op': 'Const', 'type': 'Const', 'value': 3, 'shape': []},
+                                    'axis_const_data': {'value': 3, 'shape': []},
+                                    'split_dim_const': {'op': 'Const', 'type': 'Const', 'value': np.array([27, 27])},
+                                    'split_dim_const_data': {'value': np.array([27, 27])},
+                                    'concat_1': {'axis': 3},
+                                    'concat_1_data': {'shape': np.array([1, 227, 227, 81])}
+                                })
         ConvertGroupedStridedSlice().find_and_replace_pattern(graph)
-
         (flag, resp) = compare_graphs(graph, graph_ref, 'concat_1_data', check_op_attrs=True)
         self.assertTrue(flag, resp)
 

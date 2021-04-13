@@ -1,18 +1,6 @@
-/*
-// Copyright (c) 2017 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma once
@@ -111,7 +99,7 @@ class memory_pool {
     std::multimap<uint64_t, memory_record> _no_reusable_pool;
     engine_impl* _engine;
     std::atomic<uint64_t> _temp_memory_used;
-    uint64_t _max_peak_memory_used;
+    std::atomic<uint64_t> _max_peak_memory_used;
 
 public:
     explicit memory_pool(engine_impl& engine);
@@ -140,6 +128,8 @@ public:
                                                                   allocation_type type);
     void clear_pool();
     void clear_pool_for_network(uint32_t network_id);
+    void release_memory(memory_impl* memory,
+                        const primitive_id& id);
     void color_graph(const program_impl&);
     void dump_memory_pool(const program_impl&, std::string&, std::string&);
 

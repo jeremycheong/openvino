@@ -1,18 +1,6 @@
-/*
-// Copyright (c) 2016-2019 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 #include "reorder_inst.h"
@@ -200,10 +188,8 @@ std::string reorder_inst::to_string(reorder_node const& node) {
 
 reorder_inst::typed_primitive_inst(network_impl& network, reorder_node const& node)
     : parent(network, node, !node.can_be_optimized()) {
-    if (node.can_be_optimized()) {
-        build_deps();
+    if (node.can_be_optimized())
         reuse_input();
-    }
 
     auto input_layout = node.input().get_output_layout();
     auto output_layout = node.get_output_layout();
@@ -241,13 +227,14 @@ void reorder_inst::on_execute() {
 }
 
 void reorder_inst::reuse_input() {
-    if (!node.can_be_optimized())
+    if (static_cast<bool>(_output) && _network.get_engine().is_the_same_buffer(output_memory(), input_memory()))
         return;
 
+    build_deps();
+
     if (node.requires_reinterpret()) {
-        if (!_output || !_network.get_engine().is_the_same_buffer(output_memory(), input_memory()))
-            _output = _network.get_engine().reinterpret_buffer(input_memory(), node.get_output_layout());
-    } else if (!_output) {
+        _output = _network.get_engine().reinterpret_buffer(input_memory(), node.get_output_layout());
+    } else {
         _output = (memory_impl::ptr) &input_memory();
     }
 }

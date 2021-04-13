@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -11,7 +11,7 @@
 #include <tuple>
 #include <set>
 
-#include <ie_layers_internal.hpp>
+#include <legacy/ie_layers_internal.hpp>
 
 #include <vpu/compile_env.hpp>
 #include <vpu/stages/stub_stage.hpp>
@@ -93,7 +93,14 @@ bool canTryHW(const int outputNumDims,
         tryHW = false;
     }
 
-    if (kernelSizeX > 15 || kernelSizeY > 15 || kernelStrideX > 8) {
+    // 1x16 convolution is split into two 1x8 convolutions in splitLargeKernelConv pass
+    const bool KernelSizeCantBeSplit = !(kernelSizeX == 16 && kernelSizeY == 1);
+    const bool KernelSizeTooLarge = (kernelSizeX > 15 || kernelSizeY > 15);
+    if (KernelSizeTooLarge && KernelSizeCantBeSplit) {
+        tryHW = false;
+    }
+
+    if (kernelStrideX > 8) {
         tryHW = false;
     }
 
@@ -138,6 +145,10 @@ void parseConv2D(const Model      & model,
     int dilationY = convLayer->_dilation_y;
 
     int groupSize = convLayer->_group;
+
+    // kernelStrideY doesn't matter when kernelSizeY==InputSizeY, change it to try HW in 1D case
+    if (kernelSizeY == input->desc().dim(Dim::H) + padTop + padBottom)
+        kernelStrideY = kernelStrideX;
 
     //
     // Check if HW is applicable
@@ -305,7 +316,7 @@ private:
     }
 
     static void append_pv(BlobSerializer& serializer, const PV& pv) {
-        int ndims = pv.size();
+        int ndims = static_cast<int>(pv.size());
         append_i(serializer, ndims);
         for (int i = 0; i < ndims; i++) {
             append_i(serializer, pv[i]);
@@ -334,7 +345,7 @@ void parseConvND(const Model      & model,
     VPU_THROW_UNLESS(convLayer != nullptr, "failed dynamic cast to ConvolutionLayer");
 
     auto kernelShape = convLayer->_kernel;
-    int kernelNDims = kernelShape.size();
+    int kernelNDims = static_cast<int>(kernelShape.size());
     // Yet, only 3D kernel supported (NCDHW)
     // Later, if support 4D, 5D, etc, please
     // check if (kernelNDims >= 3), so that
@@ -366,7 +377,7 @@ void parseConvND(const Model      & model,
     VPU_THROW_UNLESS(output_channels > 0, "invalid number of output channels: %d", output_channels);
 
     int groups = convLayer->_group;
-    VPU_THROW_UNLESS(groups > 0, "number of groups=%d, but grouped 3D convolution is not supported", groups);
+    VPU_THROW_UNLESS(groups == 1, "number of groups=%d, but grouped 3D convolution is not supported", groups);
 
     int inputNDims = input->desc().numDims();
     int outputNDims = output->desc().numDims();

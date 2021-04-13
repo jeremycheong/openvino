@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -7,7 +7,7 @@
 
 TEST_F(NGraphReaderTests, ReadConvolutionNetwork) {
     std::string model = R"V0G0N(
-<net name="Convolution" version="10">
+<net name="Network" version="10">
     <layers>
         <layer id="0" name="data" type="Parameter" version="opset1">
             <data element_type="f32" shape="1,3,227,227"/>
@@ -21,7 +21,7 @@ TEST_F(NGraphReaderTests, ReadConvolutionNetwork) {
             </output>
         </layer>
         <layer id="1" name="embedded_input__const" type="Const" version="opset1">
-            <data offset="0" size="139392"/>
+            <data element_type="f32" offset="0" shape="96,3,11,11" size="139392"/>
             <output>
                 <port id="1" precision="FP32">
                     <dim>96</dim>
@@ -75,7 +75,7 @@ TEST_F(NGraphReaderTests, ReadConvolutionNetwork) {
 </net>
 )V0G0N";
     std::string modelV5 = R"V0G0N(
-<net name="Convolution" version="5" precision="FP32" batch="1">
+<net name="Network" version="5" precision="FP32" batch="1">
     <layers>
         <layer id="0" name="data" precision="FP32" type="Input">
             <output>

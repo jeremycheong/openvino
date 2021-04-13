@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -12,8 +12,7 @@
 #include <vpu/utils/numeric.hpp>
 
 #include <precision_utils.h>
-#include <details/caseless.hpp>
-#include <graph_tools.hpp>
+#include <legacy/graph_tools.hpp>
 #include <description_buffer.hpp>
 #include <xml_parse_utils.h>
 
@@ -64,9 +63,6 @@ int BackEnd::serializeIOInfoSection(
             VPU_INTERNAL_CHECK(data->producerEdge() == nullptr,
                 "serializeIOInfoSection failed on input data {}. Input must have no producer but actually it has: {} with type {}",
                 data->name(), data->producerEdge()->producer()->name(), data->producerEdge()->producer()->type());
-            VPU_INTERNAL_CHECK(data->numConsumers() != 0,
-                "serializeIOInfoSection failed on input data {}. Input must have at least one consumer but it doesn't ",
-                data->usage());
         }
 
         if (dataUsage == DataUsage::Output) {
@@ -75,7 +71,7 @@ int BackEnd::serializeIOInfoSection(
                 data->usage());
         }
 
-        VPU_INTERNAL_CHECK(data->parentDataEdge() == nullptr,
+        VPU_INTERNAL_CHECK(data->parentDataToDataEdge() == nullptr,
             "serializeIOInfoSection failed on {} with usage {}. IO data must have no parentDatas but it does");
 
         VPU_INTERNAL_CHECK(!data->attrs().has("ioIdx"),
@@ -119,7 +115,7 @@ void BackEnd::serializeConstData(const Model& model, const mv_blob_header& blobH
         }
 
         IE_ASSERT(data->producerEdge() == nullptr);
-        IE_ASSERT(data->parentDataEdge() == nullptr);
+        IE_ASSERT(data->parentDataToDataEdge() == nullptr);
         IE_ASSERT(data->numConsumers() != 0);
         IE_ASSERT(data->dataLocation().location == Location::Blob);
 
@@ -132,33 +128,33 @@ void BackEnd::serializeConstData(const Model& model, const mv_blob_header& blobH
 
 void BackEnd::serializeConstShapes(const Model& model, const mv_blob_header& blobHdr, std::vector<char>& blob) {
     for (const auto& data : model->datas()) {
-        const auto serializeToBlob = [&data, &blob, &blobHdr](const BlobSerializer& serializer, int offset) {
-            std::copy_n(serializer.data(), data->desc().numDims() * sizeof(uint32_t), blob.data() + blobHdr.const_data_section_offset + offset);
-        };
-
         const auto dimsOrder = data->desc().dimsOrder();
         const auto storedPerm = dimsOrder.toPermutation();
+
+        const auto serializeToBlob = [&data, &blob, &blobHdr, &storedPerm](const DimValues& values, int offset) {
+            BlobSerializer serializer;
+
+            for (const auto& d : storedPerm) {
+                serializer.append(checked_cast<uint32_t>(values[d]));
+            }
+
+            std::copy_n(serializer.data(), data->desc().numDims() * sizeof(uint32_t), blob.data() + blobHdr.const_data_section_offset + offset);
+        };
 
         const auto shapeLocation = data->shapeLocation();
 
         if (shapeLocation.dimsLocation == Location::Blob) {
-            BlobSerializer dimsSerializer;
-            const auto dims = data->desc().dims();
-
-            for (const auto& d : storedPerm) {
-                dimsSerializer.append(checked_cast<uint32_t>(dims[d]));
-            }
-            serializeToBlob(dimsSerializer, shapeLocation.dimsOffset);
+            serializeToBlob(data->desc().dims(), shapeLocation.dimsOffset);
+        } else if (data->usage() == DataUsage::Output || data->usage() == DataUsage::Input) {
+            auto ioDimsUpperBoundOffset = data->attrs().get<int>("ioDimsUpperBoundOffset");
+            serializeToBlob(data->desc().dims(), ioDimsUpperBoundOffset);
         }
 
         if (shapeLocation.stridesLocation == Location::Blob) {
-            BlobSerializer stridesSerializer;
-            const auto strides = data->strides();
-
-            for (const auto& d : storedPerm) {
-                stridesSerializer.append(checked_cast<uint32_t>(strides[d]));
-            }
-            serializeToBlob(stridesSerializer, shapeLocation.stridesOffset);
+            serializeToBlob(data->strides(), shapeLocation.stridesOffset);
+        } else if (data->usage() == DataUsage::Output || data->usage() == DataUsage::Input) {
+            auto ioStridesUpperBoundOffset = data->attrs().get<int>("ioStridesUpperBoundOffset");
+            serializeToBlob(data->strides(), ioStridesUpperBoundOffset);
         }
     }
 }
@@ -236,9 +232,9 @@ void BackEnd::serialize(
         blobHdr.bss_mem_size = checked_cast<uint32_t>(usedMemory.BSS);
         blobHdr.number_of_cmx_slices = checked_cast<uint32_t>(env.resources.numCMXSlices);
         blobHdr.number_of_shaves = checked_cast<uint32_t>(env.resources.numSHAVEs);
-        blobHdr.has_hw_stage = checked_cast<uint32_t>(modelStagesStat.hasHwStage);
-        blobHdr.has_shave_stage = checked_cast<uint32_t>(modelStagesStat.hasShaveStage);
-        blobHdr.has_dma_stage = checked_cast<uint32_t>(modelStagesStat.hasDmaStage);
+        blobHdr.has_hw_stage = static_cast<uint32_t>(modelStagesStat.hasHwStage);
+        blobHdr.has_shave_stage = static_cast<uint32_t>(modelStagesStat.hasShaveStage);
+        blobHdr.has_dma_stage = static_cast<uint32_t>(modelStagesStat.hasDmaStage);
         blobHdr.input_info_section_offset = checked_cast<uint32_t>(hdrSize);
         blobHdr.output_info_section_offset = checked_cast<uint32_t>(blobHdr.input_info_section_offset + inputInfoSecSize);
         blobHdr.stage_section_offset = checked_cast<uint32_t>(blobHdr.output_info_section_offset + outputInfoSecSize);

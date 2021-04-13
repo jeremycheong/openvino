@@ -1,15 +1,13 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include <gtest/gtest.h>
 #include <ie_iextension.h>
-#include <cpp/ie_cnn_net_reader.h>
+#include <ie_core.hpp>
 #include <ie_common.h>
-#include <ie_layers.h>
-#include <tests_common.hpp>
-#include <mkldnn_extension_mngr.h>
+#include <legacy/ie_layers.h>
 #include "graph/test_graph.hpp"
+#include <tests_common.hpp>
 
 using namespace ::testing;
 
@@ -81,7 +79,7 @@ private:
 
 using fake_ext_factory = std::function<InferenceEngine::ILayerImplFactory*(const InferenceEngine::CNNLayer *)>;
 
-class FakeConstExtensionFabric : public InferenceEngine::IExtension {
+class FakeConstExtensionFabric : public InferenceEngine::Extensions::Cpu::MKLDNNExtensions {
 public:
     FakeConstExtensionFabric() {
         factories["ConstLayer"] = [](const InferenceEngine::CNNLayer * cnnLayer) -> InferenceEngine::ILayerImplFactory* { return new ConstLayerFactory(cnnLayer); };
@@ -92,11 +90,7 @@ public:
     }
 
     void GetVersion(const InferenceEngine::Version *&versionInfo) const noexcept override {}
-    void SetLogCallback(InferenceEngine::IErrorListener &listener) noexcept override {}
     void Unload() noexcept override {}
-    void Release() noexcept override {
-        delete this;
-    }
     InferenceEngine::StatusCode getPrimitiveTypes(char**& types, unsigned int& size, InferenceEngine::ResponseDesc* resp) noexcept override {
         types = new char *[factories.size()];
         size_t count = 0;
@@ -117,11 +111,6 @@ public:
         }
         factory = factories[cnnLayer->type](cnnLayer);
         return InferenceEngine::OK;
-    }
-
-    InferenceEngine::StatusCode getShapeInferImpl(InferenceEngine::IShapeInferImpl::Ptr& impl, const char* type,
-                                                  InferenceEngine::ResponseDesc* resp) noexcept override {
-        return InferenceEngine::NOT_IMPLEMENTED;
     }
 
 private:
@@ -236,11 +225,12 @@ TEST_F(MKLDNNConstantPropagationTests, ConcatAfterConstLayers) {
         </Net>
         )V0G0N";
 
-    InferenceEngine::CNNNetReader net_reader;
-    ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
+    InferenceEngine::Core core;
+    InferenceEngine::CNNNetwork network;
+    ASSERT_NO_THROW(network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr()));
 
     MKLDNNGraphTestClass graph;
-    graph.CreateGraph(net_reader.getNetwork(), extMgr);
+    graph.CreateGraph(network, extMgr);
 
     InferenceEngine::SizeVector dims_src1 = {1, 2, 10, 5};
 
@@ -259,7 +249,7 @@ TEST_F(MKLDNNConstantPropagationTests, ConcatAfterConstLayers) {
     srcs.insert(std::pair<std::string, InferenceEngine::Blob::Ptr>("in2", src2));
 
     InferenceEngine::OutputsDataMap out;
-    out = net_reader.getNetwork().getOutputsInfo();
+    out = network.getOutputsInfo();
     InferenceEngine::BlobMap outputBlobs;
 
     auto it = out.begin();

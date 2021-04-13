@@ -1,17 +1,12 @@
-﻿// Copyright (C) 2018-2020 Intel Corporation
+﻿// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
-
-#include <gtest/gtest.h>
-#include <gmock/gmock-spec-builders.h>
-#include "mkldnn_graph.h"
 
 #include "test_graph.hpp"
 
 #include "single_layer_common.hpp"
-#include <mkldnn_extension_utils.h>
 #include "tests_common.hpp"
-#include <cpp/ie_cnn_net_reader.h>
+#include <ie_core.hpp>
 
 
 using namespace ::testing;
@@ -93,15 +88,16 @@ protected:
             fill_test_params p = ::testing::WithParamInterface<fill_test_params>::GetParam();
             std::string model = getModel(p);
 
-            InferenceEngine::CNNNetReader net_reader;
-            ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
+                        InferenceEngine::Core core;
+            InferenceEngine::CNNNetwork network;
+            ASSERT_NO_THROW(network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr()));
 
             MKLDNNGraphTestClass graph;
-            graph.CreateGraph(net_reader.getNetwork());
+            graph.CreateGraph(network);
 
             // Output Data
             InferenceEngine::OutputsDataMap out;
-            out = net_reader.getNetwork().getOutputsInfo();
+            out = network.getOutputsInfo();
             InferenceEngine::BlobMap outputBlobs;
 
             // Input Data
@@ -176,7 +172,7 @@ protected:
             } else {
                 return;
             }
-        } catch (const InferenceEngine::details::InferenceEngineException &e) {
+        } catch (const InferenceEngine::Exception &e) {
             FAIL() << e.what();
         }
     }

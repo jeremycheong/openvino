@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -29,15 +29,18 @@
 #include <stdio.h>
 #include <ios>
 #include <sys/stat.h>
-#include <os/windows/w_dirent.h>
+
+#include <samples/os/windows/w_dirent.h>
 
 #include <inference_engine.hpp>
-#include <common.hpp>
-#include <vpu/vpu_plugin_config.hpp>
+#include <precision_utils.h>
+#include <samples/common.hpp>
+
+#include <vpu/vpu_config.hpp>
 
 static char* m_exename = nullptr;
 
-#if defined(WIN32) || defined(__APPLE__) || defined(ANDROID)
+#if defined(_WIN32) || defined(__APPLE__) || defined(ANDROID)
 typedef std::chrono::time_point<std::chrono::steady_clock> time_point;
 #else
 typedef std::chrono::time_point<std::chrono::system_clock> time_point;
@@ -50,14 +53,14 @@ typedef std::chrono::duration<float> fsec;
 
 class BitMap {
 private:
-    typedef struct {
+    struct BmpHeader {
         unsigned short type   = 0u;               /* Magic identifier            */
         unsigned int size     = 0u;               /* File size in bytes          */
         unsigned int reserved = 0u;
         unsigned int offset   = 0u;               /* Offset to image data, bytes */
-    } BmpHeader;
+    };
 
-    typedef struct {
+    struct BmpInfoHeader {
         unsigned int size = 0u;                   /* Header size in bytes      */
         int width = 0, height = 0;                /* Width and height of image */
         unsigned short planes = 0u;               /* Number of colour planes   */
@@ -67,7 +70,7 @@ private:
         int xresolution = 0, yresolution = 0;     /* Pixels per meter          */
         unsigned int ncolours = 0u;               /* Number of colours         */
         unsigned int importantcolours = 0u;       /* Important colours         */
-    } BmpInfoHeader;
+    };
 
 public:
     explicit BitMap(const std::string &filename) {
@@ -145,8 +148,6 @@ public:
     }                                                                               \
 }
 
-static short f32tof16(float x);
-static float f16tof32(short x);
 static bool loadImage(const std::string &imageFilename, InferenceEngine::Blob::Ptr &blob);
 static bool loadVideo(const std::vector<std::string> &imagesFolder, InferenceEngine::Blob::Ptr &blob);
 static bool loadBinaryTensor(const std::string &binaryFilename, InferenceEngine::Blob::Ptr &blob);
@@ -155,8 +156,8 @@ static bool loadBinaryTensor(const std::string &binaryFilename, InferenceEngine:
 static void setConfig(std::map<std::string, std::string>& config,
                       const std::string& file_config_cl) {
     config[CONFIG_KEY(LOG_LEVEL)] = CONFIG_VALUE(LOG_WARNING);
-    config[VPU_CONFIG_KEY(PRINT_RECEIVE_TENSOR_TIME)] = CONFIG_VALUE(YES);
-    config[VPU_CONFIG_KEY(CUSTOM_LAYERS)] = file_config_cl;
+    config[InferenceEngine::MYRIAD_ENABLE_RECEIVING_TENSOR_TIME] = CONFIG_VALUE(YES);
+    config[InferenceEngine::MYRIAD_CUSTOM_LAYERS] = file_config_cl;
 }
 
 static void printPerformanceCounts(const std::map<std::string, InferenceEngine::InferenceEngineProfileInfo>& perfMap) {
@@ -309,7 +310,7 @@ std::map<std::string, InferenceEngine::InferenceEngineProfileInfo> perfMap;
 int process(const std::string& modelFileName, const std::string& inputsDir,
             std::string& file_config_cl, int nBatch, int num_networks) {
     InferenceEngine::ResponseDesc resp;
-
+    InferenceEngine::Core ie;
     niter /= nBatch;
     num_requests = num_requests * num_networks;
 
@@ -326,21 +327,14 @@ int process(const std::string& modelFileName, const std::string& inputsDir,
     }
 #endif
 
-    InferenceEngine::PluginDispatcher disp;
-    InferenceEngine::InferenceEnginePluginPtr plugin(
-        disp.getPluginByName(std::string("myriadPlugin") + IE_BUILD_POSTFIX));
-
+#ifdef USE_KMB_PLUGIN
+    std::string deivceName = "KMB";
+#else
+    std::string deviceName = "MYRIAD";
+#endif
+    const auto pluginVersion = ie.GetVersions(deviceName);
     std::cout << "InferenceEngine: " << std::endl;
-
-    const InferenceEngine::Version *pluginVersion = nullptr;
-    plugin->GetVersion(pluginVersion);
     std::cout << pluginVersion << std::endl << std::endl;
-
-    InferenceEngine::CNNNetReader netReader;
-    netReader.ReadNetwork(modelFileName);
-
-    std::string binFileName = fileNameNoExt(modelFileName) + ".bin";
-    netReader.ReadWeights(binFileName);
 
     std::ifstream file(file_config_cl);
     if (!file.is_open()) {
@@ -360,7 +354,7 @@ int process(const std::string& modelFileName, const std::string& inputsDir,
         return 1;
     }
 
-    InferenceEngine::CNNNetwork cnnNetwork = netReader.getNetwork();
+    InferenceEngine::CNNNetwork cnnNetwork = ie.ReadNetwork(modelFileName);
 
     if (nBatch != 1) {
         std::cout << "Setting batch to : "<< nBatch << "\n";
@@ -387,7 +381,7 @@ int process(const std::string& modelFileName, const std::string& inputsDir,
         }
     }
 
-    std::vector<InferenceEngine::IExecutableNetwork::Ptr> exeNetwork(num_networks);
+    std::vector<InferenceEngine::ExecutableNetwork> exeNetwork(num_networks);
     std::map<std::string, std::string> networkConfig;
     setConfig(networkConfig, file_config_cl);
 
@@ -397,7 +391,7 @@ int process(const std::string& modelFileName, const std::string& inputsDir,
         else
             printf("Load network... \n");
         fflush(stdout);
-        IECALL(plugin->LoadNetwork(exeNetwork[n], cnnNetwork, networkConfig, &resp));
+        exeNetwork[n] = ie.LoadNetwork(cnnNetwork, deviceName, networkConfig);
     }
 
     std::vector<InferenceEngine::IInferRequest::Ptr> request(num_requests);
@@ -409,7 +403,7 @@ int process(const std::string& modelFileName, const std::string& inputsDir,
 
     for (int r = 0, idxPic = 0; r < num_requests; ++r) {
         int n = r % num_networks;
-        IECALL(exeNetwork[n]->CreateInferRequest(request[r], &resp));
+        request[r] = exeNetwork[n].CreateInferRequest();
 
         for (auto &input : networkInputs) {
             InferenceEngine::Blob::Ptr inputBlob;
@@ -600,99 +594,6 @@ int main(int argc, char *argv[]) {
     return -1;
 }
 
-inline float asfloat(uint32_t v) {
-    return *reinterpret_cast<float *>(&v);
-}
-
-#define EXP_MASK_F32 0x7F800000U
-#define EXP_MASK_F16     0x7C00U
-
-static short f32tof16(float x) {
-    static float min16 = asfloat((127 - 14) << 23);
-
-    static float max16 = asfloat(((127 + 15) << 23) | 0x007FE000);
-    static uint32_t max16f16 = ((15 + 15) << 10) | 0x3FF;
-
-    union {
-        float f;
-        uint32_t u;
-    } v{};
-    v.f = x;
-
-    uint32_t s = (v.u >> 16) & 0x8000;
-
-    v.u &= 0x7FFFFFFF;
-
-    if ((v.u & EXP_MASK_F32) == EXP_MASK_F32) {
-        if (v.u & 0x007FFFFF) {
-            return s | (v.u >> (23 - 10)) | 0x0200;
-        } else {
-            return s | (v.u >> (23 - 10));
-        }
-    }
-
-    float halfULP = asfloat(v.u & EXP_MASK_F32) * asfloat((127 - 11) << 23);
-    v.f += halfULP;
-
-    if (v.f < min16 * 0.5F) {
-        return s;
-    }
-
-    if (v.f < min16) {
-        return s | (1 << 10);
-    }
-
-    if (v.f >= max16) {
-        return max16f16 | s;
-    }
-
-    v.u -= ((127 - 15) << 23);
-
-    v.u >>= (23 - 10);
-
-    return v.u | s;
-}
-
-static float f16tof32(short x) {
-    // this is storage for output result
-    uint32_t u = x;
-
-    // get sign in 32bit format
-    uint32_t s = ((u & 0x8000) << 16);
-
-    // check for NAN and INF
-    if ((u & EXP_MASK_F16) == EXP_MASK_F16) {
-        // keep mantissa only
-        u &= 0x03FF;
-
-        // check if it is NAN and raise 10 bit to be align with intrin
-        if (u) {
-            u |= 0x0200;
-        }
-
-        u <<= (23 - 10);
-        u |= EXP_MASK_F32;
-        u |= s;
-    } else if ((x & EXP_MASK_F16) == 0) {  // check for zero and denormals. both are converted to zero
-        u = s;
-    } else {
-        // abs
-        u = (u & 0x7FFF);
-
-        // shift mantissa and exp from f16 to f32 position
-        u <<= (23 - 10);
-
-        // new bias for exp (f16 bias is 15 and f32 bias is 127)
-        u += ((127 - 15) << 23);
-
-        // add sign
-        u |= s;
-    }
-
-    // finaly represent result as float and return
-    return *reinterpret_cast<float *>(&u);
-}
-
 static bool loadImage(const std::string &imageFilename, InferenceEngine::Blob::Ptr &blob) {
     InferenceEngine::TensorDesc tensDesc = blob->getTensorDesc();
     const InferenceEngine::Layout layout = tensDesc.getLayout();
@@ -744,7 +645,7 @@ static bool loadImage(const std::string &imageFilename, InferenceEngine::Blob::P
                 int x = static_cast<int>(std::floor((w + 0.5f) * xScale));
                 for (int c = 0; c < C; c++) {
                     blobDataPtr[n * strideN + c * strideC + h * strideH + w * strideW] =
-                            f32tof16(1.0 * RGB8[(y * img_w + x) * numImageChannels + c]);
+                            InferenceEngine::PrecisionUtils::f32tof16(1.0 * RGB8[(y * img_w + x) * numImageChannels + c]);
                 }
             }
         }
@@ -807,7 +708,7 @@ static bool loadVideo(const std::vector<std::string> &imagesFolder, InferenceEng
                     int x = static_cast<int>(std::floor((w + 0.5f) * xScale));
                     for (int c = 0; c < C; c++) {
                         blobDataPtr[n * strideN + c * strideC + d * strideD + h * strideH + w * strideW] =
-                                f32tof16(1.0 * RGB8[(y * img_w + x) * numImageChannels + c]);
+                                InferenceEngine::PrecisionUtils::f32tof16(1.0 * RGB8[(y * img_w + x) * numImageChannels + c]);
                     }
                 }
             }
@@ -852,7 +753,7 @@ bool loadBinaryTensor(const std::string &binaryFilename, InferenceEngine::Blob::
         for (size_t i = 0; i < count; i++) {
             float tmp = 0.f;
             binaryFile.read(reinterpret_cast<char *>(&tmp), sizeof(float));
-            blobDataPtr[i] = f32tof16(tmp);
+            blobDataPtr[i] = InferenceEngine::PrecisionUtils::f32tof16(tmp);
         }
     } else {
         std::cout << "loadBinaryTensor error: While reading a file an error is encountered" << std::endl;

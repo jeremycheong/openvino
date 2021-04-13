@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -25,6 +25,15 @@ VPU_DECLARE_ENUM(PowerConfig,
     STAGE_NCES   = 4,
 )
 
+// Must be synchronized with firmware side.
+VPU_DECLARE_ENUM(MovidiusDdrType,
+    AUTO        = 0,
+    MICRON_2GB  = 1,
+    SAMSUNG_2GB = 2,
+    HYNIX_2GB   = 3,
+    MICRON_1GB  = 4,
+)
+
 class MyriadConfig final : public ParsedConfig {
 public:
     const std::string& pluginLogFilePath() const {
@@ -33,6 +42,10 @@ public:
 
     bool forceReset() const {
         return _forceReset;
+    }
+
+    bool asyncDma() const {
+        return _enableAsyncDma;
     }
 
     PowerConfig powerConfig() const {
@@ -59,6 +72,10 @@ public:
         return _deviceName;
     }
 
+    MovidiusDdrType memoryType() const {
+        return _memoryType;
+    }
+
 protected:
     const std::unordered_set<std::string>& getCompileOptions() const override;
     const std::unordered_set<std::string>& getRunTimeOptions() const override;
@@ -68,12 +85,14 @@ protected:
 private:
     std::string _pluginLogFilePath;
     bool _forceReset = false;
+    bool _enableAsyncDma = true;
     PowerConfig _powerConfig = PowerConfig::FULL;
     ncDevicePlatform_t _platform = NC_ANY_PLATFORM;
     ncDeviceProtocol_t _protocol = NC_ANY_PROTOCOL;
     std::chrono::milliseconds _watchdogInterval = std::chrono::milliseconds(1000);
     std::chrono::seconds _deviceConnectTimeout = std::chrono::seconds(15);
     std::string _deviceName;
+    MovidiusDdrType _memoryType = MovidiusDdrType::AUTO;
 };
 
 }  // namespace MyriadPlugin

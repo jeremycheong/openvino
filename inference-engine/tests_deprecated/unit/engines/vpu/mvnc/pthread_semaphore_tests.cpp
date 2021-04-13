@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -61,7 +61,7 @@ class PThreadBinSemaphoreTest : public ::testing::TestWithParam<int>{
             std::cerr << "clock_gettime";
         }
 
-        auto newNsec = (long)(spec.tv_nsec + timeout * 1000000000L);
+        auto newNsec = static_cast<long long>(spec.tv_nsec + timeout * 1000000000LL);
         spec.tv_sec   += newNsec / 1000000000L;
         spec.tv_nsec  =  newNsec % 1000000000L;
 
@@ -83,6 +83,9 @@ TEST_F(PThreadSemaphoreTest, CanNotInitSemaWithBigCounter) {
 TEST_F(PThreadSemaphoreTest, CanInitSemaWithMaxCounter) {
     ASSERT_EQ(0, pthread_sem_init(&sem, 0, SEM_VALUE_MAX));
     ASSERT_EQ(errno, 0);
+
+    ASSERT_EQ(0, pthread_sem_destroy(&sem));
+    ASSERT_EQ(errno, 0);
 }
 
 #ifdef ANDROID
@@ -95,6 +98,9 @@ TEST_F(PThreadSemaphoreTest, CanNotPostSemaWithMaxCounter) {
 
     ASSERT_EQ(-1, pthread_sem_post(&sem));
     ASSERT_EQ(EOVERFLOW, errno);
+
+    ASSERT_EQ(0, pthread_sem_destroy(&sem));
+    ASSERT_EQ(errno, 0);
 }
 
 TEST_F(PThreadSemaphoreTest, CanNotInitSemaWithSystemNonZero) {
@@ -242,7 +248,7 @@ TEST_P(PThreadBinSemaphoreTest, WillBlockWhenAcquiringSemaTwice2) {
     th.join();
 }
 
-TEST_P(PThreadBinSemaphoreTest, DestroyAcquireadSemaResultedInError) {
+TEST_P(PThreadBinSemaphoreTest, DestroyAcquiredSemaResultedInError) {
     ASSERT_EQ(0, invoke_wait());
 
     // semaphore deleted - since not blocked, even if counter is 0
@@ -279,7 +285,7 @@ TEST_P(PThreadBinSemaphoreTest, TimedWaitFinallysucceed) {
     ASSERT_EQ(-1, result = invoke_wait(0.1));  // right now sema gets occupied and resulted of a timeout
     ASSERT_EQ(ETIMEDOUT, errno);
     int i = 0;
-    for (i = 0; i < 10; i++) {
+    for (i = 0; i < 100; i++) {
         result = invoke_wait(0.1);
         if (0 == result) {
             break;
@@ -287,7 +293,7 @@ TEST_P(PThreadBinSemaphoreTest, TimedWaitFinallysucceed) {
         ASSERT_EQ(ETIMEDOUT, errno) << "actual errno value=" << result;
 
     }
-    // so 10 x 100 ms timeout should be enough
+    // so 100 x 100 ms timeout should be enough
     ASSERT_EQ(result, 0);
 
     th.join();

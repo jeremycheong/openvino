@@ -1,18 +1,5 @@
-"""
- Copyright (C) 2018-2020 Intel Corporation
-
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
-      http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
-"""
+# Copyright (C) 2018-2021 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 
 import numpy as np
 
@@ -22,6 +9,7 @@ from mo.front.common.replacement import FrontReplacementSubgraph
 from mo.front.tf.graph_utils import create_op_with_const_inputs
 from mo.graph.graph import Graph
 from mo.ops.squeeze import Squeeze
+from mo.utils.error import Error
 
 
 class SqueezeAxis(FrontReplacementOp):
@@ -40,11 +28,17 @@ class SqueezeAxis(FrontReplacementOp):
     def find_and_replace_pattern(self, graph: Graph):
         for node in graph.get_op_nodes(squeeze_axis=True):
             name = node.soft_get('name', node.id)
-            assert node.has_valid('axis'), 'Unknown axis to squeeze for node {}'.format(name)
             for out_port in node.out_ports().values():
-                squeeze_node = create_op_with_const_inputs(graph, Squeeze, {1: np.array(node.axis)},
-                                                           {'name': name + '/Squeeze_'})
-                out_port.get_connection().insert_node(squeeze_node)
+                if node.has_valid('axis'):
+                    squeeze_node = create_op_with_const_inputs(graph, Squeeze, {1: np.array(node.axis)},
+                                                               {'name': name + '/Squeeze_'})
+                    out_port.get_connection().insert_node(squeeze_node)
+                elif node.is_in_port_connected(1):
+                    squeeze_node = Squeeze(graph, {'name': name + '/Squeeze_'}).create_node()
+                    out_port.get_connection().insert_node(squeeze_node)
+                    node.in_port(1).get_connection().add_destination(squeeze_node.in_port(1))
+                else:
+                    raise Error('Unknown axis to squeeze for node {}'.format(name))
 
 
 class SplitInputsReconnect(FrontReplacementSubgraph):

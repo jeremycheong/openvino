@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -52,8 +52,8 @@ public:
     void InferAsync();
     void GetResult();
 
-    void
-    GetPerformanceCounts(std::map<std::string, InferenceEngine::InferenceEngineProfileInfo> &perfMap) const override;
+    std::map<std::string, InferenceEngine::InferenceEngineProfileInfo>
+    GetPerformanceCounts() const override;
 };
 
 }  // namespace MyriadPlugin

@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -26,8 +26,7 @@
 #include <atomic>
 
 #include <precision_utils.h>
-#include <details/caseless.hpp>
-#include <graph_tools.hpp>
+#include <legacy/graph_tools.hpp>
 #include <description_buffer.hpp>
 #include <xml_parse_utils.h>
 
@@ -179,8 +178,12 @@ void BackEnd::dumpModelToDot(
                     }
                 }
                 lbl.appendPair("memReqs", data->memReqs());
-                lbl.appendPair("location", data->dataLocation().location);
-                lbl.appendPair("memoryOffset", data->dataLocation().offset);
+                lbl.appendPair("dataLocation", data->dataLocation().location);
+                lbl.appendPair("dataOffset", data->dataLocation().offset);
+                lbl.appendPair("dimsLocation", data->shapeLocation().dimsLocation);
+                lbl.appendPair("dimsOffset", data->shapeLocation().dimsOffset);
+                lbl.appendPair("stridesLocation", data->shapeLocation().stridesLocation);
+                lbl.appendPair("stridesOffset", data->shapeLocation().stridesOffset);
                 if (!data->attrs().empty()) {
                     lbl.appendPair("extraAttrs", data->attrs());
                 }
@@ -312,19 +315,37 @@ void BackEnd::dumpModelToDot(
         //
 
         for (const auto& data : model->datas()) {
-            if (auto edge = data->parentDataEdge()) {
+            if (auto edge = data->parentDataToDataEdge()) {
                 out.append("%s -> %s [", dataDotName(edge->child()), dataDotName(edge->parent()));
                 {
                     VPU_DOT_IDENT(out);
 
                     out.append("style=dotted");
 
-                    DotLabel lbl("SharedAllocation", out);
+                    DotLabel lbl("DataToDataAllocation", out);
                     lbl.appendPair("mode", edge->mode());
                     lbl.appendPair("order", edge->order());
                     if (!edge->attrs().empty()) {
                         lbl.appendPair("extraAttrs", edge->attrs());
                     }
+                }
+                out.append("];");
+            }
+        }
+
+        //
+        // Dump Data<->Data shape edges
+        //
+
+        for (const auto& data : model->datas()) {
+            if (auto edge = data->parentDataToShapeEdge()) {
+                out.append("%s -> %s [", dataDotName(edge->parent()), dataDotName(edge->child()));
+                {
+                    VPU_DOT_IDENT(out);
+
+                    out.append("style=dotted");
+
+                    DotLabel lbl("DataToShapeAllocation", out);
                 }
                 out.append("];");
             }
@@ -357,6 +378,16 @@ void BackEnd::dumpModelToDot(
                     out.append("%s, %s", stageDotName(stage), stageDotName(injectionEdge->child()));
                 }
                 out.append("}");
+            }
+
+            for (const auto& stageDependencyEdge : stage->childDependencyEdges()) {
+                out.append("%s -> %s [", stageDotName(stage), stageDotName(stageDependencyEdge->child()));
+                {
+                    VPU_DOT_IDENT(out);
+
+                    DotLabel lbl("Extra dependency", out);
+                }
+                out.append("];");
             }
         }
     }

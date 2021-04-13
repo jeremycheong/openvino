@@ -1,15 +1,14 @@
-# Copyright (C) 2019 Intel Corporation
+# Copyright (C) 2018-2021 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 #
 
 set(TARGET_NAME unitTestUtils)
 
+add_subdirectory(mocks/mock_engine)
+
 list(APPEND EXPORT_DEPENDENCIES
         commonTestUtils_s
         inference_engine_s
-        inference_engine_preproc_s
-        inference_engine_lp_transformations
-        inference_engine_ir_readers
         gmock)
 
 addIeTarget(
@@ -18,6 +17,7 @@ addIeTarget(
         ROOT ${CMAKE_CURRENT_SOURCE_DIR}
         ADD_CPPLINT
         DEVELOPER_PACKAGE
+            inference_engine_tests
         EXPORT_DEPENDENCIES
             ${EXPORT_DEPENDENCIES}
 )

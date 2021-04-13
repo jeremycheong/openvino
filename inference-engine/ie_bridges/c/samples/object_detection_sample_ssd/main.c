@@ -1,11 +1,12 @@
-// Copyright (C) 2018-2020 Intel Corporation
-// SPDX-License-Identifier : Apache-2.0
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
 
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+
 #include <c_api/ie_c_api.h>
 #include "object_detection_sample_ssd.h"
 #include <opencv_c_wraper.h>
@@ -18,11 +19,11 @@
 
 #define MAX_IMAGE 20
 
-static const char *img_msg = NULL;                                                                                                                                                                        
+static const char *img_msg = NULL;
 static const char *input_model = NULL;
 static const char *device_name = "CPU";
-static const char *custom_cldnn_msg = NULL;
-static const char *custom_cpu_library_msg = NULL;
+static const char *custom_plugin_cfg_msg = NULL;
+static const char *custom_ex_library_msg = NULL;
 static const char *config_msg = NULL;
 static int file_num = 0;
 static char **file_paths = NULL;
@@ -30,6 +31,12 @@ static char **file_paths = NULL;
 const char *info = "[ INFO ] ";
 const char *warn = "[ WARNING ] ";
 
+/**
+* @brief Parse and check command line arguments
+* @param int argc - count of args
+* @param char *argv[] - array values of args
+* @return int - status 1(success) or -1(fail)
+*/
 int ParseAndCheckCommandLine(int argc, char *argv[]) {
     int opt = 0;
     int help = 0;
@@ -38,7 +45,7 @@ int ParseAndCheckCommandLine(int argc, char *argv[]) {
     printf("%sParsing input parameters\n", info);
 
     while ((opt = getopt(argc, argv, string)) != -1) {
-        switch(opt) {
+        switch (opt) {
             case 'h':
                 showUsage();
                 help = 1;
@@ -53,12 +60,12 @@ int ParseAndCheckCommandLine(int argc, char *argv[]) {
                 device_name = optarg;
                 break;
             case 'c':
-                custom_cldnn_msg = optarg;
+                custom_plugin_cfg_msg = optarg;
                 break;
             case 'l':
-                custom_cpu_library_msg = optarg;
+                custom_ex_library_msg = optarg;
                 break;
-            case 'f':
+            case 'g':
                 config_msg = optarg;
                 break;
             default:
@@ -68,12 +75,12 @@ int ParseAndCheckCommandLine(int argc, char *argv[]) {
 
     if (help)
         return -1;
-    if (img_msg == NULL) {
-        printf("Parameter -i is not set\n");
+    if (input_model == NULL) {
+        printf("Model is required but not set. Please set -m option.\n");
         return -1;
     }
-    if (input_model == NULL) {
-        printf("Parameter -m is not set \n");
+    if (img_msg == NULL) {
+        printf("Input is required but not set.Please set -i option.\n");
         return -1;
     }
 
@@ -105,9 +112,9 @@ void readInputFilesArgument(const char *arg) {
             const char *fileName = ep->d_name;
             if (strcmp(fileName, ".") == 0 || strcmp(fileName, "..") == 0) continue;
             char *file_path = (char *)calloc(strlen(arg) + strlen(ep->d_name) + 2, sizeof(char));
-            strcpy(file_path, arg);
-            strcat(file_path, "/");
-            strcat(file_path, ep->d_name);
+            memcpy(file_path, arg, strlen(arg));
+            memcpy(file_path + strlen(arg), "/", strlen("/"));
+            memcpy(file_path + strlen(arg) + strlen("/"), ep->d_name, strlen(ep->d_name) + 1);
 
             if (file_num == 0) {
                 file_paths = (char **)calloc(1, sizeof(char *));
@@ -122,6 +129,7 @@ void readInputFilesArgument(const char *arg) {
                     for (i = 0; i < file_num; ++i) {
                         free(file_paths[i]);
                     }
+                    free(file_path);
                     free(file_paths);
                     file_num = 0;
                 }
@@ -131,20 +139,11 @@ void readInputFilesArgument(const char *arg) {
         dp = NULL;
     } else {
         char *file_path = (char *)calloc(strlen(arg) + 1, sizeof(char));
-        strcpy(file_path, arg);
+        memcpy(file_path, arg, strlen(arg) + 1);
         if (file_num == 0) {
             file_paths = (char **)calloc(1, sizeof(char *));
         }
         file_paths[file_num++] = file_path;
-    }
-
-    if (file_num) {
-        printf("%sFiles were added: %d\n", info, file_num);
-        for (i = 0; i < file_num; ++i) {
-            printf("%s    %s\n", info, file_paths[i]);
-        }
-    } else {
-        printf("%sFiles were added: %d. Too many to display each of them.\n", info, file_num);
     }
 }
 
@@ -167,10 +166,19 @@ void parseInputFilesArguments(int argc, char **argv) {
         }
         readInputFilesArgument(argv[i]);
     }
+
+    if (file_num) {
+        printf("%sFiles were added: %d\n", info, file_num);
+        for (i = 0; i < file_num; ++i) {
+            printf("%s    %s\n", info, file_paths[i]);
+        }
+    } else {
+        printf("%sFiles were added: %d. Too many to display each of them.\n", info, file_num);
+    }
 }
 
 /**
-* @brief Convert the contents of configuration file to the ie_config_t type.
+* @brief Convert the contents of configuration file to the ie_config_t struct.
 * @param config_file File path.
 * @param comment Separator symbol.
 * @return A pointer to the ie_config_t instance.
@@ -183,12 +191,12 @@ ie_config_t *parseConfig(const char *config_file, char comment) {
 
     ie_config_t *cfg = NULL;
     char key[256], value[256];
-    
+
     if (fscanf(file, "%s", key)!= EOF && fscanf(file, "%s", value) != EOF) {
         char *cfg_name = (char *)calloc(strlen(key) + 1, sizeof(char));
         char *cfg_value = (char *)calloc(strlen(value) + 1, sizeof(char));
-        strcpy(cfg_name, key);
-        strcpy(cfg_value, value);
+        memcpy(cfg_name, key, strlen(key) + 1);
+        memcpy(cfg_value, value, strlen(value) + 1);
         ie_config_t *cfg_t = (ie_config_t *)calloc(1, sizeof(ie_config_t));
         cfg_t->name = cfg_name;
         cfg_t->value = cfg_value;
@@ -203,8 +211,8 @@ ie_config_t *parseConfig(const char *config_file, char comment) {
             }
             char *cfg_name = (char *)calloc(strlen(key) + 1, sizeof(char));
             char *cfg_value = (char *)calloc(strlen(value) + 1, sizeof(char));
-            strcpy(cfg_name, key);
-            strcpy(cfg_value, value);
+            memcpy(cfg_name, key, strlen(key) + 1);
+            memcpy(cfg_value, value, strlen(value) + 1);
             ie_config_t *cfg_t = (ie_config_t *)calloc(1, sizeof(ie_config_t));
             cfg_t->name = cfg_name;
             cfg_t->value = cfg_value;
@@ -213,7 +221,8 @@ ie_config_t *parseConfig(const char *config_file, char comment) {
             cfg_temp = cfg_temp->next;
         }
     }
-    
+    fclose(file);
+
     return cfg;
 }
 
@@ -229,11 +238,11 @@ void config_free(ie_config_t *config) {
             free((char *)config->name);
             config->name = NULL;
         }
-        if(config->value) {
+        if (config->value) {
             free((char *)config->value);
             config->value = NULL;
         }
-        if(config->next) {
+        if (config->next) {
             config = config->next;
         }
 
@@ -244,7 +253,7 @@ void config_free(ie_config_t *config) {
 
 /**
 * @brief Convert the numbers to char *;
-* @param str A pointer to the convered string .
+* @param str A pointer to the converted string.
 * @param num The number to convert.
 * @return none.
 */
@@ -272,12 +281,19 @@ void int2str(char *str, int num) {
 
 int main(int argc, char **argv) {
     /** This sample covers certain topology and cannot be generalized for any object detection one **/
+    // ------------------------------ Get Inference Engine API version ---------------------------------
     ie_version_t version = ie_c_api_version();
     printf("%sInferenceEngine: \n", info);
     printf("%s\n", version.api_version);
     ie_version_free(&version);
 
+    // ------------------------------ Parsing and validation of input args ---------------------------------
+
     char **argv_temp =(char **)calloc(argc, sizeof(char *));
+    if (!argv_temp) {
+        return EXIT_FAILURE;
+    }
+
     int i, j;
     for (i = 0; i < argc; ++i) {
         argv_temp[i] = argv[i];
@@ -290,14 +306,13 @@ int main(int argc, char **argv) {
     ie_infer_request_t *infer_request = NULL;
     ie_blob_t *imageInput = NULL, *output_blob = NULL;
 
-    // --------------------------- 1. Parsing and validation of input args ---------------------------------
     if (ParseAndCheckCommandLine(argc, argv) < 0) {
         free(argv_temp);
         return EXIT_FAILURE;
     }
     // -----------------------------------------------------------------------------------------------------
 
-    // --------------------------- 2. Read input -----------------------------------------------------------
+    // --------------------------- Read input -----------------------------------------------------------
     /** This file_paths stores paths to the processed images **/
     parseInputFilesArguments(argc, argv_temp);
     if (!file_num) {
@@ -307,12 +322,14 @@ int main(int argc, char **argv) {
     }
     // -----------------------------------------------------------------------------------------------------
 
-    // --------------------------- 3. Load inference engine ------------------------------------------------
+    // --------------------------- Step 1. Initialize inference engine core -------------------------------------
+
     printf("%sLoading Inference Engine\n", info);
     IEStatusCode status = ie_core_create("", &core);
     if (status != OK)
         goto err;
 
+    // ------------------------------ Get Available Devices ------------------------------------------------------
     ie_core_versions_t ver;
     printf("%sDevice info: \n", info);
     status = ie_core_get_versions(core, device_name, &ver);
@@ -325,38 +342,34 @@ int main(int argc, char **argv) {
     }
     ie_core_versions_free(&ver);
 
-    if (custom_cpu_library_msg) {
-        // CPU(MKLDNN) extensions are loaded as a shared library and passed as a pointer to base extension
-        status = ie_core_add_extension(core, custom_cpu_library_msg, "CPU");
+    if (custom_ex_library_msg) {
+        // Custom CPU extension is loaded as a shared library and passed as a pointer to base extension
+        status = ie_core_add_extension(core, custom_ex_library_msg, "CPU");
         if (status != OK)
             goto err;
-        printf("%sCPU Extension loaded: %s\n", info, custom_cpu_library_msg);
+        printf("%sCustom extension loaded: %s\n", info, custom_ex_library_msg);
     }
 
-    if (custom_cldnn_msg) {
-        // clDNN Extensions are loaded from an .xml description and OpenCL kernel files
-        ie_config_t cfg = {"CONFIG_FILE", custom_cldnn_msg, NULL};
-        status = ie_core_set_config(core, &cfg, "GPU");
+    if (custom_plugin_cfg_msg && (device_name == "GPU" || device_name == "MYRIAD" || device_name == "HDDL")) {
+        // Config for device plugin custom extension is loaded from an .xml description
+        ie_config_t cfg = {"CONFIG_FILE", custom_plugin_cfg_msg, NULL};
+        status = ie_core_set_config(core, &cfg, device_name);
         if (status != OK)
             goto err;
-        printf("%sGPU Extension loaded: %s\n", info, custom_cldnn_msg);
+        printf("%sConfig for device plugin custom extension loaded: %s\n", info, custom_plugin_cfg_msg);
     }
     // -----------------------------------------------------------------------------------------------------
 
-    // --------------------------- 4. Read IR Generated by ModelOptimizer (.xml and .bin files) ------------
-    input_weight = (char *)calloc(strlen(input_model) + 1, sizeof(char));
-    strncpy(input_weight, input_model, strlen(input_model)-4);
-    strcat(input_weight, ".bin");
-    printf("%sLoading network files:\n", info);
+    // Step 2. Read a model in OpenVINO Intermediate Representation (.xml and .bin files) or ONNX (.onnx file) format
+    printf("%sLoading network:\n", info);
     printf("\t%s\n", input_model);
-    printf("\t%s\n", input_weight);
-
-    status = ie_core_read_network(core, input_model, input_weight, &network);
+    status = ie_core_read_network(core, input_model, NULL, &network);
     if (status != OK)
         goto err;
     // -----------------------------------------------------------------------------------------------------
 
-    // --------------------------- 5. Prepare input blobs --------------------------------------------------
+    // --------------------------- Step 3. Configure input & output ---------------------------------------------
+    // --------------------------- Prepare input blobs -----------------------------------------------------
     printf("%sPreparing input blobs\n", info);
 
     /** SSD network has one input and one output **/
@@ -388,7 +401,7 @@ int main(int argc, char **argv) {
             goto err;
 
         /** Working with first input tensor that stores image **/
-        if(input_dim.ranks == 4) {
+        if (input_dim.ranks == 4) {
             imageInputName = name;
             input_height = input_dim.dims[2];
             input_width = input_dim.dims[3];
@@ -399,9 +412,9 @@ int main(int argc, char **argv) {
                 goto err;
         } else if (input_dim.ranks == 2) {
             imInfoInputName = name;
-        
+
             status = ie_network_set_input_precision(network, name, FP32);
-            if(status !=OK || (input_dim.dims[1] != 3 && input_dim.dims[1] != 6)) {
+            if (status !=OK || (input_dim.dims[1] != 3 && input_dim.dims[1] != 6)) {
                 printf("Invalid input info. Should be 3 or 6 values length\n");
                 goto err;
             }
@@ -423,6 +436,10 @@ int main(int argc, char **argv) {
     /** Collect images data **/
     c_mat_t *originalImages = (c_mat_t *)calloc(file_num, sizeof(c_mat_t));
     c_mat_t *images = (c_mat_t *)calloc(file_num, sizeof(c_mat_t));
+
+    if (!originalImages || !images)
+        goto err;
+
     int image_num = 0;
     for (i = 0; i < file_num; ++i) {
         c_mat_t img = {NULL, 0, 0, 0, 0, 0};
@@ -439,20 +456,27 @@ int main(int argc, char **argv) {
             resized_img.mat_height = img.mat_height;
             resized_img.mat_type = img.mat_type;
             resized_img.mat_data = calloc(1, resized_img.mat_data_size);
+            if (resized_img.mat_data == NULL) {
+                image_free(&img);
+                continue;
+            }
+
             for (j = 0; j < resized_img.mat_data_size; ++j)
                 resized_img.mat_data[j] = img.mat_data[j];
         } else {
             printf("%sImage is resized from (%d, %d) to (%zu, %zu)\n", \
-            warn, img.mat_width, img.mat_height, input_width, input_height);
+                warn, img.mat_width, img.mat_height, input_width, input_height);
 
-            image_resize(&img, &resized_img, (int)input_width, (int)input_height);
+            if (image_resize(&img, &resized_img, (int)input_width, (int)input_height) == -1) {
+                printf("%sImage %s cannot be resized!\n", warn, file_paths[i]);
+                image_free(&img);
+                continue;
+            }
         }
 
-        if (resized_img.mat_data) {
-            originalImages[image_num] = img;
-            images[image_num] = resized_img;
-            ++image_num;
-        }
+        originalImages[image_num] = img;
+        images[image_num] = resized_img;
+        ++image_num;
     }
 
     if (!image_num) {
@@ -467,6 +491,8 @@ int main(int argc, char **argv) {
     if (status != OK)
         goto err;
 
+    /** Using ie_network_reshape() to set the batch size equal to the number of input images **/
+    /** For input with NCHW/NHWC layout the first dimension N is the batch size **/
     shapes.shapes[0].shape.dims[0] = image_num;
     status = ie_network_reshape(network, shapes);
     if (status != OK)
@@ -480,9 +506,8 @@ int main(int argc, char **argv) {
     size_t batchSize = shapes2.shapes[0].shape.dims[0];
     ie_network_input_shapes_free(&shapes2);
     printf("%sBatch size is %zu\n", info, batchSize);
-    // -----------------------------------------------------------------------------------------------------
 
-    // --------------------------- 6. Prepare output blobs -------------------------------------------------
+    // --------------------------- Prepare output blobs ----------------------------------------------------
     printf("%sPreparing output blobs\n", info);
 
     size_t output_num = 0;
@@ -520,13 +545,13 @@ int main(int argc, char **argv) {
         goto err;
     // -----------------------------------------------------------------------------------------------------
 
-    // --------------------------- 7. Loading model to the device ------------------------------------------
+    // --------------------------- Step 4. Loading model to the device ------------------------------------------
     printf("%sLoading model to the device\n", info);
     if (config_msg) {
         ie_config_t * config = parseConfig(config_msg, '#');
         status = ie_core_load_network(core, network, device_name, config, &exe_network);
+        config_free(config);
         if (status != OK) {
-            config_free(config);
             goto err;
         }
     } else {
@@ -538,15 +563,14 @@ int main(int argc, char **argv) {
 
     // -----------------------------------------------------------------------------------------------------
 
-    // --------------------------- 8. Create infer request -------------------------------------------------
+    // --------------------------- Step 5. Create infer request -------------------------------------------------
     printf("%sCreate infer request\n", info);
     status = ie_exec_network_create_infer_request(exe_network, &infer_request);
     if (status != OK)
         goto err;
     // -----------------------------------------------------------------------------------------------------
 
-    // --------------------------- 9. Prepare input --------------------------------------------------------
-
+    // --------------------------- Step 6. Prepare input --------------------------------------------------------
 
     /** Creating input blob **/
     status = ie_infer_request_get_blob(infer_request, imageInputName, &imageInput);
@@ -590,7 +614,7 @@ int main(int argc, char **argv) {
 
         dimensions_t imInfoDim;
         status |= ie_blob_get_dims(input2, &imInfoDim);
-        //Fill input tensor with values 
+        //Fill input tensor with values
         ie_blob_buffer_t info_blob_buffer;
         status |= ie_blob_get_buffer(input2, &info_blob_buffer);
         if (status != OK) {
@@ -601,7 +625,7 @@ int main(int argc, char **argv) {
         for (image_id = 0; image_id < batchSize; ++image_id) {
             p[image_id * imInfoDim.dims[1] + 0] = (float)input_height;
             p[image_id * imInfoDim.dims[1] + 1] = (float)input_width;
-            
+
             for (k = 2; k < imInfoDim.dims[1]; k++) {
                 p[image_id * imInfoDim.dims[1] + k] = 1.0f;  // all scale factors are set to 1.0
             }
@@ -610,15 +634,15 @@ int main(int argc, char **argv) {
     }
     // -----------------------------------------------------------------------------------------------------
 
-    // --------------------------- 10. Do inference ---------------------------------------------------------
+    // --------------------------- Step 7. Do inference --------------------------------------------------------
     printf("%sStart inference\n", info);
     status = ie_infer_request_infer_async(infer_request);
     status |= ie_infer_request_wait(infer_request, -1);
     if (status != OK)
         goto err;
-    // ----------------------------------------------------------------------------------------------------- 
+    // -----------------------------------------------------------------------------------------------------
 
-    // --------------------------- 11. Process output -------------------------------------------------------
+    // --------------------------- Step 8. Process output ------------------------------------------------------
     printf("%sProcessing output blobs\n", info);
 
     status = ie_infer_request_get_blob(infer_request, output_name, &output_blob);
@@ -634,7 +658,7 @@ int main(int argc, char **argv) {
     int **classes = (int **)calloc(image_num, sizeof(int *));
     rectangle_t **boxes = (rectangle_t **)calloc(image_num, sizeof(rectangle_t *));
     int *object_num = (int *)calloc(image_num, sizeof(int));
-    for ( i = 0; i < image_num; ++i) {
+    for (i = 0; i < image_num; ++i) {
         classes[i] = (int *)calloc(maxProposalCount, sizeof(int));
         boxes[i] = (rectangle_t *)calloc(maxProposalCount, sizeof(rectangle_t));
         object_num[i] = 0;
@@ -678,11 +702,11 @@ int main(int argc, char **argv) {
         }
         const char *out = "out_";
         char str_num[16] = {0};
-        int2str(str_num, batch_id); 
+        int2str(str_num, batch_id);
         char *img_path = (char *)calloc(strlen(out) + strlen(str_num) + strlen(".bmp") + 1, sizeof(char));
-        strcpy(img_path, out);
-        strcat(img_path, str_num);
-        strcat(img_path, ".bmp");
+        memcpy(img_path, out, strlen(out));
+        memcpy(img_path + strlen(out), str_num, strlen(str_num));
+        memcpy(img_path + strlen(out) + strlen(str_num), ".bmp", strlen(".bmp") + 1);
         image_save(img_path, &originalImages[batch_id]);
         printf("%sImage %s created!\n", info, img_path);
         free(img_path);
@@ -692,6 +716,7 @@ int main(int argc, char **argv) {
     // -----------------------------------------------------------------------------------------------------
 
     printf("%sExecution successful\n", info);
+    printf("\nThis sample is an API example, for any performance measurements please use the dedicated benchmark_app tool\n");
 
     for (i = 0; i < image_num; ++i) {
         free(classes[i]);

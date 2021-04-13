@@ -1,21 +1,10 @@
-"""
- Copyright (C) 2018-2020 Intel Corporation
+# Copyright (C) 2018-2021 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
-      http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
-"""
 import unittest
 
 from extensions.middle.ReplaceSpliceNodePattern import ReplaceSpliceNodePattern
+from mo.front.common.partial_infer.utils import int64_array
 from mo.graph.graph import Node
 from mo.utils.ir_engine.compare_graphs import compare_graphs
 from mo.utils.unittest.graph import build_graph
@@ -42,19 +31,26 @@ class ReplaceSpliceNodePatternTests(unittest.TestCase):
 
         ref_graph = build_graph({'in_placeholder': {'kind': 'op', 'op': None},
                                  'in_node': {'kind': 'data', 'shape': [1, 13]},
-                                 'memory_in': {'kind': 'op', 'op': 'Memory'},
+
+                                 'fill_value': {'kind': 'op', 'op': 'Const', 'value': int64_array([0])},
+                                 'fill_value_data': {'kind': 'data'},
+
+                                 'memory_in': {'kind': 'op', 'op': 'ReadValue'},
                                  'memory_in_data': {'kind': 'data'},
                                  'crop_mem':  {'kind': 'op', 'op': 'Crop', 'offset': 13, 'dim': 130},
                                  'crop_mem_data': {'kind': 'data'},
                                  'concat': {'kind': 'op', 'op': 'Concat'},
                                  'concat_data': {'kind': 'data', 'shape': [1, 143]},
-                                 'memory_out': {'kind': 'op', 'op': 'Memory'},
+                                 'memory_out': {'kind': 'op', 'op': 'Assign'},
                                  'memory_out_data': {'kind': 'data'},
                                  'result': {'kind': 'op', 'op': 'Result'},
                                  'out_placeholder': {'kind': 'op', 'op': 'placeholder'},
                                  },
                                 [
                                     ('in_placeholder', 'in_node'),
+
+                                    ('fill_value', 'fill_value_data'), ('fill_value_data', 'memory_in'),
+
                                     ('memory_in', 'memory_in_data'),
                                     ('memory_in_data', 'crop_mem'),
                                     ('crop_mem', 'crop_mem_data'),
@@ -86,22 +82,31 @@ class ReplaceSpliceNodePatternTests(unittest.TestCase):
                                  'split': {'kind': 'op', 'op': 'Split'},
                                  'split_data_0': {'kind': 'data'},
                                  'split_data_1': {'kind': 'data'},
-                                 'memory_in': {'kind': 'op', 'op': 'Memory'},
+
+                                 'fill_value': {'kind': 'op', 'op': 'Const', 'value': int64_array([0])},
+                                 'fill_value_data': {'kind': 'data'},
+
+                                 'memory_in': {'kind': 'op', 'op': 'ReadValue'},
                                  'memory_in_data': {'kind': 'data'},
                                  'crop_mem': {'kind': 'op', 'op': 'Crop', 'offset': 3, 'dim': 30},
                                  'crop_mem_data': {'kind': 'data'},
                                  'concat': {'kind': 'op', 'op': 'Concat'},
                                  'concat_data': {'kind': 'data'},
-                                 'memory_out': {'kind': 'op', 'op': 'Memory'},
+                                 'memory_out': {'kind': 'op', 'op': 'Assign'},
                                  'memory_out_data': {'kind': 'data'},
                                  'result': {'kind': 'op', 'op': 'Result'},
-                                 'memory_in_constdims': {'kind': 'op', 'op': 'Memory'},
+
+
+                                 'fill_value_2': {'kind': 'op', 'op': 'Const', 'value': int64_array([0])},
+                                 'fill_value_2_data': {'kind': 'data'},
+\
+                                 'memory_in_constdims': {'kind': 'op', 'op': 'ReadValue'},
                                  'memory_in_constdims_data': {'kind': 'data'},
                                  'crop_mem_constdims': {'kind': 'op', 'op': 'Crop', 'offset': 10, 'dim': 100},
                                  'crop_mem_constdims_data': {'kind': 'data'},
                                  'concat_constdims': {'kind': 'op', 'op': 'Concat'},
                                  'concat_constdims_data': {'kind': 'data'},
-                                 'memory_out_constdims': {'kind': 'op', 'op': 'Memory'},
+                                 'memory_out_constdims': {'kind': 'op', 'op': 'Assign'},
                                  'memory_out_constdims_data': {'kind': 'data'},
                                  'result_constdims': {'kind': 'op', 'op': 'Result'},
                                  'crop_first_constdims': {'kind': 'op', 'op': 'Crop', 'offset': 0, 'dim': 10},
@@ -121,6 +126,9 @@ class ReplaceSpliceNodePatternTests(unittest.TestCase):
                                     ('in_node', 'split', {'in': 0}),
                                     ('split', 'split_data_0', {'out': 0}),
                                     ('split', 'split_data_1', {'out': 1}),
+
+                                    ('fill_value', 'fill_value_data'), ('fill_value_data', 'memory_in'),
+
                                     ('memory_in', 'memory_in_data'),
                                     ('memory_in_data', 'crop_mem'),
                                     ('crop_mem', 'crop_mem_data'),
@@ -130,6 +138,9 @@ class ReplaceSpliceNodePatternTests(unittest.TestCase):
                                     ('concat_data', 'memory_out'),
                                     ('memory_out', 'memory_out_data'),
                                     ('memory_out_data', 'result'),
+
+                                    ('fill_value_2', 'fill_value_2_data'), ('fill_value_2_data', 'memory_in_constdims'),
+
                                     ('memory_in_constdims', 'memory_in_constdims_data'),
                                     ('memory_in_constdims_data', 'crop_mem_constdims'),
                                     ('crop_mem_constdims', 'crop_mem_constdims_data'),

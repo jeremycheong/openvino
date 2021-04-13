@@ -1,18 +1,5 @@
-"""
- Copyright (C) 2018-2020 Intel Corporation
-
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
-      http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
-"""
+# Copyright (C) 2018-2021 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 
 from mo.back.replacement import BackReplacementPattern
 from mo.graph.graph import Graph
@@ -26,14 +13,14 @@ class KaldiRemoveMemoryOutputBackReplacementPattern(BackReplacementPattern):
         return [BackFinish]
 
     def run_before(self):
-        from extensions.back.SpecialNodesFinalization import RemoveOutputOps
-        return [RemoveOutputOps]
+        from extensions.back.SpecialNodesFinalization import CreateConstNodesReplacement
+        return [CreateConstNodesReplacement]
 
     @staticmethod
     def pattern():
         return dict(
             nodes=[
-                ('memory_node', dict(op='Memory')),
+                ('memory_node', dict(op='Assign')),
                 ('data_node', dict(kind='data')),
                 ('op_output', dict(op='Result'))
             ],
@@ -63,6 +50,8 @@ class KaldiRemoveMemoryOutputBackReplacementPattern(BackReplacementPattern):
         """
         memory = match['memory_node']
         data = match['data_node']
+        op_output = match['op_output']
 
         graph.remove_edge(memory.id, data.id)
         graph.remove_node(data.id)
+        graph.remove_node(op_output.id)

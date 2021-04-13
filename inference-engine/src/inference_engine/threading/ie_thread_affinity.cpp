@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2019 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -59,7 +59,8 @@ bool PinThreadToVacantCore(int thrIdx, int hyperthreads, int ncores, const CpuSe
     // Find index of 'cpu_idx'-th bit that equals to 1
     int mapped_idx = -1;
     while (cpu_idx >= 0) {
-        if (CPU_ISSET_S(++mapped_idx, size, procMask.get()))
+        mapped_idx++;
+        if (CPU_ISSET_S(mapped_idx, size, procMask.get()))
             --cpu_idx;
     }
 

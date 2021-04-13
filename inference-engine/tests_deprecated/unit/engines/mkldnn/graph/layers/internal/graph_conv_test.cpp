@@ -1,22 +1,14 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
-
-#include <gtest/gtest.h>
-#include <gmock/gmock-spec-builders.h>
-#include "mkldnn_graph.h"
 
 #include "test_graph.hpp"
 
 #include "single_layer_common.hpp"
-#include <mkldnn_extension_utils.h>
-#include <cnn_network_impl.hpp>
+#include <legacy/cnn_network_impl.hpp>
 #include "tests_common.hpp"
-#include <cpp/ie_cnn_net_reader.h>
-
-#define XBYAK_NO_OP_NAMES
-#define XBYAK_UNDEF_JNL
-#include "../../../../../../../thirdparty/mkl-dnn/src/cpu/xbyak/xbyak_util.h"
+#include <ie_core.hpp>
+#include <ie_system_conf.h>
 
 using namespace InferenceEngine;
 using namespace ::testing;
@@ -39,6 +31,7 @@ struct conv_test_params {
     size_t num_prim_desc;
 
     int selectedType;
+    bool defaultPrimitivesPriority;
     vector<MKLDNNPlugin::impl_desc_type> preferTypes;
 
     vector<std::function<void(MKLDNNPlugin::PrimitiveDescInfo)>> comp;
@@ -157,7 +150,7 @@ class MKLDNNGraphConvolutionTests: public TestsCommon,
             <convolution _AP_ kernel="_K_"
                          pads_begin="_PB_"  pads_end="_PE_"
                          strides="_KS_"
-                         output="_OC_"  group="_GC_" PrimitivesPriority="_IMPLS_"/>
+                         output="_OC_"  group="_GC_" _PRIM_PRIORITY_/>
 
             <weights offset="0" size="_S1_" />
             <biases offset="_S1_" size="_S2_" />
@@ -224,13 +217,17 @@ protected:
         REPLACE_WITH_NUM(model, "_S1_", w_data_size);
         REPLACE_WITH_NUM(model, "_S2_", b_data_size);
 
-        std::string impls;
-        for (const auto& preferType : p.preferTypes) {
-            if (!impls.empty())
-                impls += ",";
-            impls += "cpu:" + MKLDNNGraphTestClass::getStrPrimitiveDescriptorType(preferType);
+        std::string primitivesPriorityStr;
+        if (!p.defaultPrimitivesPriority) {
+            std::string impls;
+            for (const auto& preferType : p.preferTypes) {
+                if (!impls.empty())
+                    impls += ",";
+                impls += "cpu:" + MKLDNNGraphTestClass::getStrPrimitiveDescriptorType(preferType);
+            }
+            primitivesPriorityStr = "PrimitivesPriority=\"" + impls + "\"";
         }
-        REPLACE_WITH_STR(model, "_IMPLS_", impls);
+        REPLACE_WITH_STR(model, "_PRIM_PRIORITY_", primitivesPriorityStr);
 
         return model;
     }
@@ -243,9 +240,6 @@ protected:
             TestsCommon::SetUp();
             conv_test_params p = ::testing::WithParamInterface<conv_test_params>::GetParam();
             std::string model = getModel(p);
-
-            CNNNetReader net_reader;
-            ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
 
             size_t blob_size = p.out_c * p.dims[1] / p.grp_c;
             for (auto k : p.kernel) {
@@ -260,8 +254,9 @@ protected:
 
             TBlob<uint8_t>::Ptr weights_ptr = TBlob<uint8_t>::Ptr(weights);
 
-            net_reader.SetWeights(weights_ptr);
-            CNNNetwork network = net_reader.getNetwork();
+            InferenceEngine::Core core;
+            InferenceEngine::CNNNetwork network;
+            ASSERT_NO_THROW(network = core.ReadNetwork(model, weights_ptr));
 
             MKLDNNGraphTestClass graph;
             graph.CreateGraph(network);
@@ -273,6 +268,10 @@ protected:
                 if (node->getType() == MKLDNNPlugin::Convolution) {
                     ASSERT_LE(p.num_prim_desc, node->getSupportedPrimitiveDescriptors().size());
                     for (const auto prim : node->getSupportedPrimitiveDescriptors()) {
+                        if (p.defaultPrimitivesPriority) {
+                            if (prim.getImplementationType() & MKLDNNPlugin::impl_desc_type::gemm)
+                                FAIL() << "There should be no gemm implementation in supportedPrimitiveDescriptors";
+                        }
                         std::cout << MKLDNNGraphTestClass::getStrPrimitiveDescriptorType(prim.getImplementationType()) << " ";
                     }
                     std::cout << std::endl;
@@ -280,11 +279,8 @@ protected:
                         p.comp.at(j)(node->getSupportedPrimitiveDescriptors().at(j));
                     }
                     ASSERT_NE(nullptr, node->getSelectedPrimitiveDescriptor());
-                    Xbyak::util::Cpu cpu;
-                    if (cpu.has(Xbyak::util::Cpu::tAVX512F)
-                            && cpu.has(Xbyak::util::Cpu::tAVX512BW)
-                            && cpu.has(Xbyak::util::Cpu::tAVX512VL)
-                            && cpu.has(Xbyak::util::Cpu::tAVX512DQ)
+                    if (InferenceEngine::with_cpu_x86_avx512f() &&
+                            InferenceEngine::with_cpu_x86_avx512_core()
                             && !p.preferTypes.empty()
                             && p.preferTypes[0] == MKLDNNPlugin::impl_desc_type::jit_avx512_winograd) {
                         isWino = true;
@@ -336,7 +332,7 @@ protected:
             dst_ref.allocate();
             ref_conv(*srcPtr, (const float *)weights->buffer(), weights->size() / sizeof(float), dst_ref, p);
             compare(*output, dst_ref, 0.0002f);
-        } catch (const details::InferenceEngineException &e) {
+        } catch (const Exception &e) {
             FAIL() << e.what();
         }
     }
@@ -348,73 +344,68 @@ TEST_P(MKLDNNGraphConvolutionTests, TestsConvolution) {}
 INSTANTIATE_TEST_CASE_P(
     TestConvolution, MKLDNNGraphConvolutionTests,
     ::testing::Values(
-        /*0*/   conv_test_params{{1, 9, 16, 32},
-                                 {1, 1}, {1, 1}, {0, 0}, {0, 0}, 17, 1, "same_upper", 6, MKLDNNPlugin::impl_desc_type::jit | MKLDNNPlugin::impl_desc_type::_1x1 },
-                conv_test_params{{1, 9, 32, 16},
-                                 {2, 4}, {1, 1}, {1, 1}, {0, 2}, 17, 1, "", 5, MKLDNNPlugin::impl_desc_type::jit },
-                conv_test_params{{1, 9, 32, 16},
-                                 {2, 4}, {2, 1}, {0, 0}, {0, 0}, 17, 1, "", 5, MKLDNNPlugin::impl_desc_type::jit },
-                conv_test_params{{1, 3, 40, 40},
-                                 {3, 3}, {1, 2}, {0, 0}, {0, 0}, 20, 1, "", 5, MKLDNNPlugin::impl_desc_type::jit },
-                conv_test_params{{1, 1, 40, 40},
-                                 {3, 3}, {1, 2}, {0, 0}, {0, 0}, 20, 1, "", 5, MKLDNNPlugin::impl_desc_type::jit },
-                conv_test_params{{1, 1, 32, 16},
-                                 {2, 4}, {2, 1}, {0, 0}, {0, 0}, 17, 1, "", 5, MKLDNNPlugin::impl_desc_type::jit },
-                conv_test_params{{1, 9, 32, 16},
-                                 {2, 4}, {1, 1}, {0, 0}, {0, 0}, 17, 1, "", 5, MKLDNNPlugin::impl_desc_type::ref_any,
-                                 {MKLDNNPlugin::impl_desc_type::ref_any} },
-                conv_test_params{{1, 4, 54, 96},
-                                 {3, 3}, {1, 1}, {1, 1}, {0, 0}, 64, 1, "", 3, MKLDNNPlugin::impl_desc_type::ref_any,
-                                 {MKLDNNPlugin::impl_desc_type::jit_avx512_winograd, MKLDNNPlugin::impl_desc_type::ref_any}},
+        /*0*/   conv_test_params{{1, 9, 16, 32}, {1, 1}, {1, 1}, {0, 0}, {0, 0}, 17, 1, "same_upper", 6,
+                                 MKLDNNPlugin::impl_desc_type::jit | MKLDNNPlugin::impl_desc_type::_1x1, false },
+                conv_test_params{{1, 9, 32, 16}, {2, 4}, {1, 1}, {1, 1}, {0, 2}, 17, 1, "", 4, MKLDNNPlugin::impl_desc_type::jit, false },
+                conv_test_params{{1, 9, 32, 16}, {2, 4}, {2, 1}, {0, 0}, {0, 0}, 17, 1, "", 4, MKLDNNPlugin::impl_desc_type::jit, false },
+                conv_test_params{{1, 3, 40, 40}, {3, 3}, {1, 2}, {0, 0}, {0, 0}, 20, 1, "", 4, MKLDNNPlugin::impl_desc_type::jit, false },
+                conv_test_params{{1, 1, 40, 40}, {3, 3}, {1, 2}, {0, 0}, {0, 0}, 20, 1, "", 4, MKLDNNPlugin::impl_desc_type::jit, false },
+                conv_test_params{{1, 1, 32, 16}, {2, 4}, {2, 1}, {0, 0}, {0, 0}, 17, 1, "", 4, MKLDNNPlugin::impl_desc_type::jit, false },
+                conv_test_params{{1, 9, 32, 16}, {2, 4}, {1, 1}, {0, 0}, {0, 0}, 17, 1, "", 4, MKLDNNPlugin::impl_desc_type::jit, false },
+                conv_test_params{{1, 4, 54, 96}, {3, 3}, {1, 1}, {1, 1}, {0, 0}, 64, 1, "", 3, MKLDNNPlugin::impl_desc_type::jit, false },
                 // 5D
-        /*8*/   conv_test_params{{1, 3, 15, 20, 20},
-                                 {3, 3, 3}, {2, 2, 2}, {0, 0, 0}, {0, 0, 0}, 64, 1, "", 2, MKLDNNPlugin::impl_desc_type::ref_any,
-                                 {MKLDNNPlugin::impl_desc_type::ref_any} },
-                conv_test_params{{1, 24, 15, 20, 20},
-                                 {3, 3, 3}, {2, 2, 2}, {0, 0, 0}, {0, 0, 0}, 64, 1, "", 2, MKLDNNPlugin::impl_desc_type::ref_any,
-                                 {MKLDNNPlugin::impl_desc_type::ref_any} },
-                conv_test_params{{1, 32, 15, 20, 20},
-                                 {3, 3, 3}, {2, 2, 2}, {0, 0, 0}, {0, 0, 0}, 64, 1, "", 2, MKLDNNPlugin::impl_desc_type::ref_any,
-                                 {MKLDNNPlugin::impl_desc_type::ref_any} },
-                conv_test_params{{1, 3, 15, 25, 20},
-                                 {3, 3, 3}, {2, 2, 2}, {0, 0, 0}, {0, 0, 0}, 64, 1, "", 2, MKLDNNPlugin::impl_desc_type::jit },
-                conv_test_params{{1, 24, 15, 25, 20},
-                                 {3, 3, 3}, {2, 2, 2}, {0, 0, 0}, {0, 0, 0}, 64, 1, "", 2, MKLDNNPlugin::impl_desc_type::jit },
-        /*13*/  conv_test_params{{1, 32, 15, 25, 20},
-                                 {3, 3, 3}, {2, 2, 2}, {0, 0, 0}, {0, 0, 0}, 64, 1, "", 2, MKLDNNPlugin::impl_desc_type::jit },
-        /*20*/  conv_test_params{{1, 16, 30, 30, 10},
-                                 {5, 5, 5}, {1, 1, 1}, {2, 2, 2}, {2, 2, 2}, 16, 1, "", 2, MKLDNNPlugin::impl_desc_type::jit },
-                conv_test_params{{1, 16, 30, 30, 10},
-                                 {5, 5, 5}, {1, 1, 1}, {2, 2, 2}, {2, 2, 2}, 16, 1, "", 2, MKLDNNPlugin::impl_desc_type::ref_any,
-                                 {MKLDNNPlugin::impl_desc_type::ref_any} } ));
+        /*8*/   conv_test_params{{1, 3, 15, 20, 20}, {3, 3, 3}, {2, 2, 2}, {0, 0, 0}, {0, 0, 0}, 64, 1, "", 2, MKLDNNPlugin::impl_desc_type::jit, false },
+                conv_test_params{{1, 24, 15, 20, 20}, {3, 3, 3}, {2, 2, 2}, {0, 0, 0}, {0, 0, 0}, 64, 1, "", 2, MKLDNNPlugin::impl_desc_type::jit, false },
+                conv_test_params{{1, 32, 15, 20, 20}, {3, 3, 3}, {2, 2, 2}, {0, 0, 0}, {0, 0, 0}, 64, 1, "", 2, MKLDNNPlugin::impl_desc_type::jit, false },
+                conv_test_params{{1, 3, 15, 25, 20}, {3, 3, 3}, {2, 2, 2}, {0, 0, 0}, {0, 0, 0}, 64, 1, "", 2, MKLDNNPlugin::impl_desc_type::jit, false },
+                conv_test_params{{1, 24, 15, 25, 20}, {3, 3, 3}, {2, 2, 2}, {0, 0, 0}, {0, 0, 0}, 64, 1, "", 2, MKLDNNPlugin::impl_desc_type::jit, false },
+        /*13*/  conv_test_params{{1, 32, 15, 25, 20}, {3, 3, 3}, {2, 2, 2}, {0, 0, 0}, {0, 0, 0}, 64, 1, "", 2, MKLDNNPlugin::impl_desc_type::jit, false },
+                conv_test_params{{1, 16, 30, 30, 10}, {5, 5, 5}, {1, 1, 1}, {2, 2, 2}, {2, 2, 2}, 16, 1, "", 2, MKLDNNPlugin::impl_desc_type::jit, false },
+                conv_test_params{{1, 16, 30, 30, 10}, {5, 5, 5}, {1, 1, 1}, {2, 2, 2}, {2, 2, 2}, 16, 1, "", 2, MKLDNNPlugin::impl_desc_type::jit, false} ));
 
 #ifdef USE_MKL
 INSTANTIATE_TEST_CASE_P(
     MKLTestConvolution, MKLDNNGraphConvolutionTests,
     ::testing::Values(
                 conv_test_params{{1, 9, 16, 32},
-                                 {1, 1}, {1, 1}, {0, 0}, {0, 0}, 17, 1, "", 6, MKLDNNPlugin::impl_desc_type::gemm,
+                                 {1, 1}, {1, 1}, {0, 0}, {0, 0}, 17, 1, "", 6, MKLDNNPlugin::impl_desc_type::gemm, false,
                                  {MKLDNNPlugin::impl_desc_type::gemm_any,
                                   MKLDNNPlugin::impl_desc_type::gemm_blas,
                                   MKLDNNPlugin::impl_desc_type::gemm_avx512,
                                   MKLDNNPlugin::impl_desc_type::gemm_avx2,
                                   MKLDNNPlugin::impl_desc_type::gemm_sse42} },
                 conv_test_params{{1, 5, 15, 20, 20},
-                                 {3, 3, 3}, {1, 1, 1}, {0, 0, 0}, {0, 0, 0}, 64, 1, "", 2, MKLDNNPlugin::impl_desc_type::gemm_blas,
+                                 {3, 3, 3}, {1, 1, 1}, {0, 0, 0}, {0, 0, 0}, 64, 1, "", 2, MKLDNNPlugin::impl_desc_type::gemm_blas, false,
                                  {MKLDNNPlugin::impl_desc_type::gemm_blas} },
                 conv_test_params{{1, 5, 15, 20, 20},
-                                 {3, 3, 3}, {3, 2, 1}, {0, 0, 0}, {0, 0, 0}, 64, 1, "", 2, MKLDNNPlugin::impl_desc_type::gemm_blas,
+                                 {3, 3, 3}, {3, 2, 1}, {0, 0, 0}, {0, 0, 0}, 64, 1, "", 2, MKLDNNPlugin::impl_desc_type::gemm_blas, false,
                                  {MKLDNNPlugin::impl_desc_type::gemm_blas} },
                 // conv_test_params{{1, 5, 15, 20, 20},
-                //                  {3, 3, 3}, {1, 1, 1}, {2, 2, 2}, {1, 1, 1}, 64, 1, "", 2, MKLDNNPlugin::impl_desc_type::gemm_blas,
+                //                  {3, 3, 3}, {1, 1, 1}, {2, 2, 2}, {1, 1, 1}, 64, 1, "", 2, MKLDNNPlugin::impl_desc_type::gemm_blas, false,
                 //                  {MKLDNNPlugin::impl_desc_type::gemm_blas}  },
                 conv_test_params{{1, 16, 30, 30, 10},
-                                 {5, 5, 5}, {1, 1, 1}, {2, 2, 2}, {2, 2, 2}, 16, 1, "", 2, MKLDNNPlugin::impl_desc_type::gemm_blas,
+                                 {5, 5, 5}, {1, 1, 1}, {2, 2, 2}, {2, 2, 2}, 16, 1, "", 2, MKLDNNPlugin::impl_desc_type::gemm_blas, false,
                                  {MKLDNNPlugin::impl_desc_type::gemm_blas} },
                 conv_test_params{{1, 4, 16, 16, 16},
-                                 {3, 3, 3}, {1, 1, 1}, {1, 1, 1}, {1, 1, 1}, 8, 1, "", 2, MKLDNNPlugin::impl_desc_type::gemm_blas,
+                                 {3, 3, 3}, {1, 1, 1}, {1, 1, 1}, {1, 1, 1}, 8, 1, "", 2, MKLDNNPlugin::impl_desc_type::gemm_blas, false,
                                  {MKLDNNPlugin::impl_desc_type::gemm_blas} } ));
 #endif
+
+INSTANTIATE_TEST_CASE_P(
+    TestConvolutionDefaultPrimitivesPriority, MKLDNNGraphConvolutionTests,
+    ::testing::Values(
+        /*0*/   conv_test_params{{1, 9, 16, 32}, {1, 1}, {1, 1}, {0, 0}, {0, 0}, 17, 1, "same_upper", 6,
+                                 MKLDNNPlugin::impl_desc_type::jit | MKLDNNPlugin::impl_desc_type::_1x1, true },
+                conv_test_params{{1, 9, 32, 16}, {2, 4}, {1, 1}, {1, 1}, {0, 2}, 17, 1, "", 3, MKLDNNPlugin::impl_desc_type::jit, true },
+                conv_test_params{{1, 9, 32, 16}, {2, 4}, {2, 1}, {0, 0}, {0, 0}, 17, 1, "", 3, MKLDNNPlugin::impl_desc_type::jit, true },
+                conv_test_params{{1, 3, 40, 40}, {3, 3}, {1, 2}, {0, 0}, {0, 0}, 20, 1, "", 3, MKLDNNPlugin::impl_desc_type::jit, true },
+                conv_test_params{{1, 1, 40, 40}, {3, 3}, {1, 2}, {0, 0}, {0, 0}, 20, 1, "", 3, MKLDNNPlugin::impl_desc_type::jit, true },
+                conv_test_params{{1, 1, 32, 16}, {2, 4}, {2, 1}, {0, 0}, {0, 0}, 17, 1, "", 3, MKLDNNPlugin::impl_desc_type::jit, true },
+        // 5D
+        /*6*/   conv_test_params{{1, 3, 15, 25, 20}, {3, 3, 3}, {2, 2, 2}, {0, 0, 0}, {0, 0, 0}, 64, 1, "", 2, MKLDNNPlugin::impl_desc_type::jit, true },
+                conv_test_params{{1, 24, 15, 25, 20}, {3, 3, 3}, {2, 2, 2}, {0, 0, 0}, {0, 0, 0}, 64, 1, "", 2, MKLDNNPlugin::impl_desc_type::jit, true },
+                conv_test_params{{1, 32, 15, 25, 20}, {3, 3, 3}, {2, 2, 2}, {0, 0, 0}, {0, 0, 0}, 64, 1, "", 2, MKLDNNPlugin::impl_desc_type::jit, true },
+                conv_test_params{{1, 16, 30, 30, 10}, {5, 5, 5}, {1, 1, 1}, {2, 2, 2}, {2, 2, 2}, 16, 1, "", 2, MKLDNNPlugin::impl_desc_type::jit, true } ));
 
 
 class MKLDNNGraphDynBatchConvolutionTests: public MKLDNNGraphConvolutionTests {
@@ -428,9 +419,6 @@ protected:
             if (dims[0] < 2)
                 dims[0] = 2;
 
-            CNNNetReader net_reader;
-            ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
-
             size_t blob_size = p.out_c * dims[1] / p.grp_c;
             for (auto k : p.kernel) {
                 blob_size *= k;
@@ -441,10 +429,12 @@ protected:
             fill_data((float *) weights->buffer(), weights->size() / sizeof(float));
             TBlob<uint8_t>::Ptr weights_ptr = TBlob<uint8_t>::Ptr(weights);
 
-            net_reader.SetWeights(weights_ptr);
-            CNNNetwork network = net_reader.getNetwork();
-            auto implNet = dynamic_cast<details::CNNNetworkImpl *>(&((ICNNNetwork&)network));
-            ASSERT_NE(nullptr, implNet) << "Failed to cast ICNNNetwork to CNNNetworkImpl";
+            InferenceEngine::Core core;
+            InferenceEngine::CNNNetwork network;
+            ASSERT_NO_THROW(network = core.ReadNetwork(model, weights_ptr));
+
+            ASSERT_EQ(nullptr, network.getFunction());
+            auto implNet = static_cast<InferenceEngine::details::CNNNetworkImpl *>(&((InferenceEngine::ICNNNetwork&)network));
             ResponseDesc resp;
             StatusCode sts  = implNet->setBatchSizeReshape(dims[0], &resp);
             ASSERT_EQ((int)StatusCode::OK, sts) << resp.msg;
@@ -491,7 +481,7 @@ protected:
 
             graph.checkDynBatch(srcs, outputBlobs, dims[0], dims[0], checkConvolution, MKLDNNGraphTestClass::CheckDynBatchType::Child);
             graph.checkDynBatch(srcs, outputBlobs, 1, dims[0], checkConvolution, MKLDNNGraphTestClass::CheckDynBatchType::Child);
-        } catch (const details::InferenceEngineException &e) {
+        } catch (const Exception &e) {
             FAIL() << e.what();
         }
     }
@@ -499,36 +489,38 @@ protected:
 
 TEST_P(MKLDNNGraphDynBatchConvolutionTests, TestsDynBatchConvolution) {}
 
+// TODO: rewrite to ngraph to have reshape functionality
 INSTANTIATE_TEST_CASE_P(
-    TestDynBatchConvolution, MKLDNNGraphDynBatchConvolutionTests,
+    DISABLED_TestDynBatchConvolution, MKLDNNGraphDynBatchConvolutionTests,
     ::testing::Values(
                 conv_test_params{{1, 8, 16, 32},
                                  {1, 1}, {1, 1}, {0, 0}, {0, 0}, 17, 1, "same_upper", 7, MKLDNNPlugin::impl_desc_type::jit | MKLDNNPlugin::impl_desc_type::_1x1,
-                                 {MKLDNNPlugin::impl_desc_type::jit_avx512_winograd}},
+                                 false, {MKLDNNPlugin::impl_desc_type::jit_avx512_winograd}},
                 conv_test_params{{1, 9, 32, 16},
                                  {2, 4}, {1, 1}, {0, 0}, {0, 0}, 17, 1, "", 5, MKLDNNPlugin::impl_desc_type::jit,
-                                 {MKLDNNPlugin::impl_desc_type::jit_avx512_winograd} },
+                                 false, {MKLDNNPlugin::impl_desc_type::jit_avx512_winograd} },
                 conv_test_params{{1, 9, 32, 16},
                                  {2, 4}, {2, 1}, {0, 0}, {0, 0}, 17, 1, "", 5, MKLDNNPlugin::impl_desc_type::jit,
-                                 {MKLDNNPlugin::impl_desc_type::jit_avx512_winograd} },
+                                 false, {MKLDNNPlugin::impl_desc_type::jit_avx512_winograd} },
                 conv_test_params{{1, 3, 40, 40},
                                  {3, 3}, {1, 2}, {0, 0}, {0, 0}, 20, 1, "", 5, MKLDNNPlugin::impl_desc_type::jit,
-                                 {MKLDNNPlugin::impl_desc_type::jit_avx512_winograd} },
+                                 false, {MKLDNNPlugin::impl_desc_type::jit_avx512_winograd} },
                 conv_test_params{{1, 1, 40, 40},
                                  {3, 3}, {1, 2}, {0, 0}, {0, 0}, 20, 1, "", 5, MKLDNNPlugin::impl_desc_type::jit,
-                                 {MKLDNNPlugin::impl_desc_type::jit_avx512_winograd} },
+                                 false, {MKLDNNPlugin::impl_desc_type::jit_avx512_winograd} },
                 conv_test_params{{1, 1, 32, 16},
                                  {2, 4}, {2, 1}, {0, 0}, {0, 0}, 17, 1, "", 5, MKLDNNPlugin::impl_desc_type::jit,
-                                 {MKLDNNPlugin::impl_desc_type::jit_avx512_winograd} },
+                                 false, {MKLDNNPlugin::impl_desc_type::jit_avx512_winograd} },
                 conv_test_params{{1, 9, 32, 16},
                                  {2, 4}, {1, 1}, {0, 0}, {0, 0}, 17, 1, "", 5, MKLDNNPlugin::impl_desc_type::ref_any,
-                                 {MKLDNNPlugin::impl_desc_type::ref_any} } ));
+                                 false, {MKLDNNPlugin::impl_desc_type::ref_any} } ));
+
 #ifdef USE_MKL
 INSTANTIATE_TEST_CASE_P(
     MKLTestDynBatchConvolution, MKLDNNGraphDynBatchConvolutionTests,
     ::testing::Values(
                 conv_test_params{{1, 9, 16, 32},
-                                 {1, 1}, {1, 1}, {0, 0}, {0, 0}, 17, 1, "", 7, MKLDNNPlugin::impl_desc_type::gemm,
+                                 {1, 1}, {1, 1}, {0, 0}, {0, 0}, 17, 1, "", 7, MKLDNNPlugin::impl_desc_type::gemm, false,
                                  {MKLDNNPlugin::impl_desc_type::gemm_any,
                                   MKLDNNPlugin::impl_desc_type::gemm_blas,
                                   MKLDNNPlugin::impl_desc_type::gemm_avx512,

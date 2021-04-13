@@ -1,5 +1,4 @@
-# Copyright (C) 2019 Intel Corporation
-#
+# Copyright (C) 2018-2021 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -10,13 +9,21 @@ addIeTargetTest(
             ${TARGET_NAME}
         ROOT
             ${CMAKE_CURRENT_SOURCE_DIR}
+        INCLUDES
+            ${CLDNN__OCL_ICD_INCDIRS}
+            ${CMAKE_CURRENT_SOURCE_DIR}
         DEPENDENCIES
             clDNNPlugin
         LINK_LIBRARIES
             funcSharedTests
-            ${CLDNN__IOCL_ICD_LIBPATH}
+            ${CLDNN__OCL_ICD_LIBPATH}
         ADD_CPPLINT
         LABELS
             GPU
 )
-target_include_directories(${TARGET_NAME} PRIVATE ${CLDNN__IOCL_ICD_INCDIRS})
+
+if(LIBVA_FOUND)
+    target_compile_definitions(${TARGET_NAME} PRIVATE ENABLE_LIBVA)
+    target_include_directories(${TARGET_NAME} PRIVATE ${LIBVA_INCLUDE_DIRS})
+    target_link_libraries(${TARGET_NAME} PRIVATE ${LIBVA_LINK_LIBRARIES})
+endif()

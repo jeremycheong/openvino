@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-#include <ie_layers.h>
+#include <legacy/ie_layers.h>
 
 #include <vpu/model/model.hpp>
 
@@ -116,7 +116,8 @@ public:
             const ie::CNNLayerPtr& layer,
             Dim axis,
             const DataVector& inputs,
-            const Data& output);
+            const Data& output,
+            ConcatInferRequirement inferRequirement = ConcatInferRequirement::CanBeReplaced);
 
     Stage addConcatStage(
             const Model& model,
@@ -275,6 +276,16 @@ public:
             const Data& updates,
             const Data& axis);
 
+    Stage addScatterElementsUpdateStage(
+            const Model& model,
+            const std::string& name,
+            const ie::CNNLayerPtr& layer,
+            const Data& input,
+            const Data& output,
+            const Data& indices,
+            const Data& updates,
+            const Data& axis);
+
     Stage addLoopStartStage(
         const Model& model,
         const std::string& name,
@@ -286,6 +297,66 @@ public:
         const std::string& name,
         const DataVector& inputs,
         const DataVector& outputs);
+
+    Stage addSigmoidStage(
+            const Model& model,
+            const std::string& name,
+            const ie::CNNLayerPtr& layer,
+            const DataVector& inputs,
+            const DataVector& outputs);
+
+    Stage addProdStage(
+            const Model& model,
+            const std::string& name,
+            const ie::CNNLayerPtr& layer,
+            const Data& input0,
+            const Data& input1,
+            const Data& output);
+
+    Stage addGatherNDStage(
+            const Model& model,
+            const std::string& name,
+            const ie::CNNLayerPtr& layer,
+            const Data& input,
+            const Data& indices,
+            const Data& output,
+            int32_t batch_dims);
+
+    Stage addInterpStage(
+            const Model& model,
+            const std::string& name,
+            const ie::CNNLayerPtr& layer,
+            bool align_corners,
+            InterpolateMode mode,
+            InterpolateCoordTransMode coordinateTransformationMode,
+            const Data& input,
+            const Data& output);
+
+    Stage addResampleNearestStage(
+            const Model& model,
+            const std::string& name,
+            const ie::CNNLayerPtr& layer,
+            bool antialias,
+            InterpolateCoordTransMode coordinateTransformationMode,
+            InterpolateNearestMode nearestMode,
+            float factor,
+            const Data& input,
+            const Data& output);
+
+    Stage addGatherElementsStage(const Model &model,
+                                 const std::string &name,
+                                 const ie::CNNLayerPtr &layer,
+                                 const DataVector &inputs,
+                                 const Data &output, int32_t axis,
+                                 bool rowIndicesMode);
+
+    Stage addCTCGreedyDecoderSeqLenStage(const Model& model,
+                                         const std::string& name,
+                                         const ie::CNNLayerPtr& layer,
+                                         const DataVector& inputs,
+                                         const DataVector& outputs,
+                                         bool mergeRepeated,
+                                         int32_t blankIndex);
 };
 
 }  // namespace vpu

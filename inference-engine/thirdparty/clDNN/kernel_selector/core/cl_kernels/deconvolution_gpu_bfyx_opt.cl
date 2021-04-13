@@ -1,16 +1,6 @@
-// Copyright (c) 2016-2017 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
 
 #include "include/include_all.cl"
 
@@ -24,13 +14,13 @@ KERNEL(deconvolution_gpu_bfyx_opt)(
 #if BIAS_TERM
     const __global BIAS_TYPE* bias,
 #endif
-    uint split_idx
-#if FUSED_ELTWISE
-	, const __global UNIT_TYPE* fuse_input
+#if HAS_FUSED_OPS_DECLS
+    FUSED_OPS_DECLS,
 #endif
-	)
+    uint split_idx
+    )
 {
-    UNIT_TYPE result = UNIT_VAL_ZERO;
+    ACCUMULATOR_TYPE acc = ACCUMULATOR_VAL_ZERO;
 
     const uint b_f          = get_global_id(2);
     const uint batch_offset = b_f / OUTPUT_FEATURE_NUM;
@@ -89,41 +79,32 @@ KERNEL(deconvolution_gpu_bfyx_opt)(
                     uint fixed_input_offset_y = (uint)input_offset_y / STRIDE_SIZE_Y;
                     uint input_idx = input_offset + (uint)fixed_input_offset_x*INPUT0_X_PITCH + (uint)fixed_input_offset_y*INPUT0_Y_PITCH;
 
-#if GRADIENT
-                    uint filter_idx = filter_offset + of*FILTER_IFM_PITCH + (FILTER_SIZE_Y - i - 1)*FILTER_Y_PITCH + (FILTER_SIZE_X - j - 1)*FILTER_X_PITCH;
-                    for (uint h = 0; h < FILTER_OFM_NUM; h++)
-                    {
-                        result = fma(input[input_idx], filter[filter_idx], result);
-                        filter_idx += FILTER_OFM_PITCH;
-                        input_idx += INPUT0_FEATURE_PITCH;
-                    }
-#else
                     uint filter_idx = filter_offset + of*FILTER_OFM_PITCH + (FILTER_SIZE_Y - i - 1)*FILTER_Y_PITCH + (FILTER_SIZE_X - j - 1)*FILTER_X_PITCH;
                     for (uint h = 0; h < FILTER_IFM_NUM; h++)
                     {
-                        result = fma(input[input_idx], filter[filter_idx], result);
+                        acc += TO_ACCUMULATOR_TYPE(input[input_idx]) * TO_ACCUMULATOR_TYPE(filter[filter_idx]);
                         filter_idx += FILTER_IFM_PITCH;
                         input_idx += INPUT0_FEATURE_PITCH;
                     }
-#endif
                 }
             }
         }
     }
+
+    ACTIVATION_TYPE result = TO_ACTIVATION_TYPE(acc);
 #if BIAS_TERM
     result += bias[ofm_offset];
 #endif
+    result = ACTIVATION(result, ACTIVATION_PARAMS);
+
     const uint out_split_offset = g * OUTPUT_FEATURE_PITCH * FILTER_OFM_NUM;
     const uint dst_index = OUTPUT_OFFSET + out_split_offset + batch_offset*OUTPUT_BATCH_PITCH + of*OUTPUT_FEATURE_PITCH + id_y*OUTPUT_Y_PITCH + id_x*OUTPUT_X_PITCH;
-#if FUSED_ELTWISE
-    const uint fused_index = INPUT1_OFFSET + g * INPUT1_FEATURE_PITCH * FILTER_OFM_NUM + batch_offset*INPUT1_BATCH_PITCH + of*INPUT1_FEATURE_PITCH + id_y*INPUT1_Y_PITCH + id_x*INPUT1_X_PITCH;
-#if !GRADIENT
-	output[dst_index] = ACTIVATION(result + fuse_input[fused_index], ACTIVATION_PARAMS);
+
+#if HAS_FUSED_OPS
+    FUSED_OPS;
+    output[dst_index] = FUSED_OPS_RESULT;
 #else
-	output[dst_index] = result + fuse_input[fused_index];
-#endif
-#else
-    output[dst_index] = ACTIVATION(result, ACTIVATION_PARAMS);
+    output[dst_index] = TO_OUTPUT_TYPE(result);
 #endif
 }
 

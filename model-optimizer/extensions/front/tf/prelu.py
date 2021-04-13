@@ -1,30 +1,16 @@
-"""
- Copyright (C) 2018-2020 Intel Corporation
-
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
-      http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
-"""
+# Copyright (C) 2018-2021 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 
 import logging as log
 
 from extensions.front.PowerToEltwises import PowerToEltwises
-from extensions.front.sub import Sub
-from extensions.ops.prelu import PreluOp
+from extensions.ops.prelu import PReLU
 from mo.front.common.replacement import FrontReplacementSubgraph
 from mo.graph.graph import Graph
 from mo.middle.pattern_match import check_node_usages_out_of_match
 
 
-class PReLU(FrontReplacementSubgraph):
+class PReLUPatternFuse(FrontReplacementSubgraph):
     enabled = True
 
     def run_before(self):
@@ -58,16 +44,13 @@ class PReLU(FrontReplacementSubgraph):
                         ''.format(', '.join([match[n].id for n in consumers])))
             return
         gamma = match['mul'].in_node(0) if match['mul'].in_node(1).id == match['neg_1'].id else match['mul'].in_node(1)
-        prelu_node = PreluOp(graph, {'name': '{}/PReLU'.format(match['add'].id)}).create_node([match['op'], gamma])
+        prelu_node = PReLU(graph, {'name': '{}/PReLU'.format(match['add'].id)}).create_node([match['op'], gamma])
         match['add'].replace_node(prelu_node)
         log.debug('PReLU pattern starting from "{}" was collapsed to "{}"'.format(match['op'].id, prelu_node.id))
 
 
-class PReLUWithAbs(FrontReplacementSubgraph):
+class PReLUWithAbsPatternFuse(FrontReplacementSubgraph):
     enabled = True
-
-    def run_before(self):
-        return [Sub]
 
     def pattern(self):
         return dict(
@@ -100,6 +83,6 @@ class PReLUWithAbs(FrontReplacementSubgraph):
                         'replace '.format(', '.join([match[n].id for n in consumers])))
             return
         gamma = match['mul'].in_node(0) if match['mul'].in_node(1).id == match['sub'].id else match['mul'].in_node(1)
-        prelu_node = PreluOp(graph, {'name': '{}/PReLU'.format(match['add'].id)}).create_node([match['op'], gamma])
+        prelu_node = PReLU(graph, {'name': '{}/PReLU'.format(match['add'].id)}).create_node([match['op'], gamma])
         match['add'].replace_node(prelu_node)
         log.debug('PReLUWithAbs pattern starting from "{}" was collapsed to "{}"'.format(match['op'].id, prelu_node.id))

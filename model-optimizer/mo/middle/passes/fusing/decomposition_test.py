@@ -1,18 +1,5 @@
-"""
- Copyright (C) 2018-2020 Intel Corporation
-
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
-      http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
-"""
+# Copyright (C) 2018-2021 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 
 import unittest
 
@@ -29,27 +16,27 @@ nodes_attributes = {
     'placeholder_2_data': {'value': None, 'shape': None, 'kind': 'data', 'data_type': None},
     # ScaleShift layer
     'scaleshift_1': {'type': 'ScaleShift', 'kind': 'op', 'op': 'ScaleShift', 'axis': 0},
-    'const_scaleshift_1_w': {'value': None, 'shape': None, 'kind': 'op'},
+    'const_scaleshift_1_w': {'value': None, 'shape': None, 'kind': 'op', 'op': 'Const'},
     'scaleshift_1_w': {'value': None, 'shape': None, 'kind': 'data'},
-    'const_scaleshift_1_b': {'value': None, 'shape': None, 'kind': 'op'},
+    'const_scaleshift_1_b': {'value': None, 'shape': None, 'kind': 'op', 'op': 'Const'},
     'scaleshift_1_b': {'value': None, 'shape': None, 'kind': 'data'},
     'scaleshift_1_data': {'value': None, 'shape': None, 'kind': 'data'},
     # Mul and Add operations
     'mul_1': {'type': None, 'value': None, 'kind': 'op', 'op': 'Mul'},
-    'const_mul_1_w': {'value': None, 'shape': None, 'kind': 'op'},
+    'const_mul_1_w': {'value': None, 'shape': None, 'kind': 'op', 'op': 'Const'},
     'mul_1_w': {'value': None, 'shape': None, 'kind': 'data'},
     'mul_1_data': {'value': None, 'shape': None, 'kind': 'data'},
     'add_1': {'type': None, 'kind': 'op', 'op': 'Add'},
-    'const_add_1_w': {'value': None, 'shape': None, 'kind': 'op'},
+    'const_add_1_w': {'value': None, 'shape': None, 'kind': 'op', 'op': 'Const'},
     'add_1_w': {'value': None, 'shape': None, 'kind': 'data'},
     'add_1_data': {'value': None, 'shape': None, 'kind': 'data'},
     # Mul and Add operations
     'mul_2': {'type': None, 'kind': 'op', 'op': 'Mul'},
-    'const_mul_2_w': {'value': None, 'shape': None, 'kind': 'op'},
+    'const_mul_2_w': {'value': None, 'shape': None, 'kind': 'op', 'op': 'Const'},
     'mul_2_w': {'value': None, 'shape': None, 'kind': 'data'},
     'mul_2_data': {'value': None, 'shape': None, 'kind': 'data'},
     'add_2': {'type': None, 'kind': 'op', 'op': 'Add'},
-    'const_add_2_w': {'value': None, 'shape': None, 'kind': 'op'},
+    'const_add_2_w': {'value': None, 'shape': None, 'kind': 'op', 'op': 'Const'},
     'add_2_w': {'value': None, 'shape': None, 'kind': 'data'},
     'add_2_data': {'value': None, 'shape': None, 'kind': 'data'},
     # Reshape
@@ -59,13 +46,13 @@ nodes_attributes = {
     'placeholder_2/Reshape_const_data': {'kind': 'data', 'value': None, 'shape': None},
     # BatchNorm operation
     'bn_op': {'type': None, 'kind': 'op', 'op': 'BatchNorm', 'can_be_fused': True},
-    'const_bn_const': {'value': None, 'shape': None, 'kind': 'op'},
+    'const_bn_const': {'value': None, 'shape': None, 'kind': 'op', 'op': 'Const'},
     'bn_const': {'value': None, 'shape': None, 'kind': 'data'},
-    'const_bn_beta': {'value': None, 'shape': None, 'kind': 'op'},
+    'const_bn_beta': {'value': None, 'shape': None, 'kind': 'op', 'op': 'Const'},
     'bn_beta': {'value': None, 'shape': None, 'kind': 'data'},
-    'const_bn_mean': {'value': None, 'shape': None, 'kind': 'op'},
+    'const_bn_mean': {'value': None, 'shape': None, 'kind': 'op', 'op': 'Const'},
     'bn_mean': {'value': None, 'shape': None, 'kind': 'data'},
-    'const_bn_var': {'value': None, 'shape': None, 'kind': 'op'},
+    'const_bn_var': {'value': None, 'shape': None, 'kind': 'op', 'op': 'Const'},
     'bn_var': {'value': None, 'shape': None, 'kind': 'data'},
     'bn_data': {'value': None, 'shape': None, 'kind': 'data'},
     # Concat1 operation

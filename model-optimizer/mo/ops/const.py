@@ -1,18 +1,5 @@
-"""
- Copyright (C) 2018-2020 Intel Corporation
-
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
-      http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
-"""
+# Copyright (C) 2018-2021 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 
 import numpy as np
 
@@ -31,6 +18,7 @@ class Const(Op):
         super().__init__(graph, {
             'type': self.op,
             'op': self.op,
+            'version': 'opset1',
             'infer': self.infer,
             'value': None,
             'shape': None,
@@ -50,16 +38,13 @@ class Const(Op):
             self.attrs['data_type'] = data_type_str_to_np(self.attrs['force_type'])
 
     def supported_attrs(self):
-        if self.ir_version == 10:
-            return [
-                'offset',
-                'size',
-                ('shape', lambda node: ','.join([str(i) for i in node.shape])),
-                ('element_type', lambda node: precision_to_destination_type(node.force_type)
-                if node.has_valid('force_type') else np_data_type_to_destination_type(node.value.dtype)),
-            ]
-        else:
-            return []
+        return [
+            'offset',
+            'size',
+            ('shape', lambda node: ','.join([str(i) for i in node.shape])),
+            ('element_type', lambda node: precision_to_destination_type(node.force_type)
+            if node.has_valid('force_type') else np_data_type_to_destination_type(node.value.dtype)),
+        ]
 
     @staticmethod
     def type_infer(node):

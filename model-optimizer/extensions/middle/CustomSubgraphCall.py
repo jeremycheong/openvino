@@ -1,18 +1,5 @@
-"""
- Copyright (C) 2018-2020 Intel Corporation
-
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
-      http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
-"""
+# Copyright (C) 2018-2021 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 
 import copy
 import logging as log
@@ -51,10 +38,8 @@ class CustomSubgraphCall(MiddleReplacementPattern):
         :param graph: graph to operate on
         :return: None
         """
-        for node_name in graph.nodes():
-            node = Node(graph, node_name)
-            if node.kind == 'op' and node.has_valid('op') and node.op == 'TFCustomSubgraphCall':
-                CustomSubgraphCall.update_placeholder_shape_and_add_transpose(node)
+        for node in graph.get_op_nodes(op='TFCustomSubgraphCall'):
+            CustomSubgraphCall.update_placeholder_shape_and_add_transpose(node)
 
     @staticmethod
     def update_placeholder_shape_and_add_transpose(node: Node):
@@ -65,6 +50,8 @@ class CustomSubgraphCall(MiddleReplacementPattern):
         """
         try:
             import tensorflow.compat.v1 as tf_v1
+            # disable eager execution of TensorFlow 2 environment immediately
+            tf_v1.disable_eager_execution()
         except ImportError:
             import tensorflow as tf_v1
         from mo.front.common.layout import convert_shape, nhwc_to_nchw_permute, nchw_to_nhwc_permute
@@ -116,10 +103,8 @@ class CustomSubgraphCall(MiddleReplacementPattern):
         :param graph: graph to operate on
         :return: None
         """
-        for node_name in graph.nodes():
-            node = Node(graph, node_name)
-            if node.kind == 'op' and node.has_valid('op') and node.op == 'TFCustomSubgraphCall':
-                CustomSubgraphCall.add_sub_graph_call_output_tensors_transposes(node)
+        for node in graph.get_op_nodes(op='TFCustomSubgraphCall'):
+            CustomSubgraphCall.add_sub_graph_call_output_tensors_transposes(node)
 
     @staticmethod
     def make_shape_4d(shape: np.array):
@@ -263,21 +248,19 @@ class CustomSubgraphCall(MiddleReplacementPattern):
                     src_node.shape, dst_node.type))
                 CustomSubgraphCall.add_reshape_before_op_node(graph, src_node_name, dst_node_name, edge_attrs)
 
-        for node_name in list(graph.nodes()):
-            node = Node(graph, node_name)
-            if node['kind'] == 'op' and node.has_and_set('type') and node.type == 'TFCustomSubgraphCall':
-                for index, data_node in node.out_nodes().items():
-                    real_dims_count = len(data_node.shape)
-                    if real_dims_count != 4:
-                        log.info(
-                            "There is an data tensor of shape '{}' with real dims count '{}' which goes out of '{}' "
-                            "node".format(data_node.shape, real_dims_count, node.name))
-                        CustomSubgraphCall.add_reshape_after_data_node(graph, data_node.id)
+        for node in graph.get_op_nodes(op='TFCustomSubgraphCall'):
+            for index, data_node in node.out_nodes().items():
+                real_dims_count = len(data_node.shape)
+                if real_dims_count != 4:
+                    log.info(
+                        "There is an data tensor of shape '{}' with real dims count '{}' which goes out of '{}' "
+                        "node".format(data_node.shape, real_dims_count, node.name))
+                    CustomSubgraphCall.add_reshape_after_data_node(graph, data_node.id)
 
-                        # need to update shape of the op so IE generates XML with 4D tensors
-                        out_shape = CustomSubgraphCall.make_shape_4d(data_node['shape'])
+                    # need to update shape of the op so IE generates XML with 4D tensors
+                    out_shape = CustomSubgraphCall.make_shape_4d(data_node['shape'])
 
-                        data_node['shape'] = out_shape
+                    data_node['shape'] = out_shape
 
     @staticmethod
     def add_sub_graph_call_output_tensors_transposes(node: Node):
@@ -288,6 +271,8 @@ class CustomSubgraphCall(MiddleReplacementPattern):
         """
         try:
             import tensorflow.compat.v1 as tf_v1
+            # disable eager execution of TensorFlow 2 environment immediately
+            tf_v1.disable_eager_execution()
         except ImportError:
             import tensorflow as tf_v1
         from mo.front.tf.partial_infer.tf import get_subgraph_output_tensors, add_node_def_to_subgraph

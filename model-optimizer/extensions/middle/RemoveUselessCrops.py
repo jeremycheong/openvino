@@ -1,24 +1,12 @@
-"""
- Copyright (C) 2018-2020 Intel Corporation
+# Copyright (C) 2018-2021 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
-      http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
-"""
 from mo.graph.graph import Graph
 from mo.middle.replacement import MiddleReplacementPattern
 
 
 class RemoveUselessCropsPattern(MiddleReplacementPattern):
-    """
+    r"""
     Remove useless construction with crops and concat like follows:
                 in_node
          /    /   |    \     \
@@ -59,7 +47,18 @@ class RemoveUselessCropsPattern(MiddleReplacementPattern):
             if out['op'] == 'Crop' and out['axis'] == axis and \
                len(out.out_port(0).get_destinations()) == 1 and \
                out.out_port(0).get_destination().node == concat_node:
-                offsets_dims.append((out['offset'], out['dim']))
+                # crop type 1
+                if 'dim' in out:
+                    offsets_dims.append((out['offset'], out['dim']))
+                # crop type 3
+                elif 'crop_begin' in out and 'crop_end' in out:
+                    offsets_dims.append((out['crop_begin'], out['crop_end']-out['crop_begin']))
+                # crop type 2 with const dim
+                elif not out.in_port(1).disconnected() and out.in_port(1).data.get_value() is not None:
+                    offsets_dims.append((out['offset'], out.in_port(1).data.get_value()))
+                # crop type 2 with non-const dim or strange type of crop
+                else:
+                    return
                 crop_list.append(out)
 
         offsets_dims.sort(key=lambda off_dim: off_dim[0])

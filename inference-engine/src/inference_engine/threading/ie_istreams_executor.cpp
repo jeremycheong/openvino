@@ -1,11 +1,10 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
 #include "threading/ie_istreams_executor.hpp"
 #include "ie_plugin_config.hpp"
 #include "cpp_interfaces/interface/ie_internal_plugin_config.hpp"
-#include "details/ie_exception.hpp"
 #include "ie_parallel.hpp"
 #include "ie_system_conf.h"
 #include "ie_parameter.hpp"
@@ -30,6 +29,13 @@ std::vector<std::string> IStreamsExecutor::Config::SupportedKeys() {
 void IStreamsExecutor::Config::SetConfig(const std::string& key, const std::string& value) {
         if (key == CONFIG_KEY(CPU_BIND_THREAD)) {
             if (value == CONFIG_VALUE(YES) || value == CONFIG_VALUE(NUMA)) {
+#if (IE_THREAD == IE_THREAD_TBB || IE_THREAD == IE_THREAD_TBB_AUTO) && (TBB_INTERFACE_VERSION < 11100)
+                if (value == CONFIG_VALUE(NUMA))
+                    IE_THROW() << CONFIG_KEY(CPU_BIND_THREAD) << " property value was set to NUMA. But IE was built with "
+                                       << "TBB version without NUMA-aware API. Current TBB API version is " << TBB_INTERFACE_VERSION
+                                       << ", required API version 11100 or greater.";
+#endif
+
 #if (defined(__APPLE__) || defined(_WIN32))
                 // on the Windows and Apple the CORES and NUMA pinning options are the same
                 _threadBindingType = IStreamsExecutor::ThreadBindingType::NUMA;
@@ -40,14 +46,14 @@ void IStreamsExecutor::Config::SetConfig(const std::string& key, const std::stri
             } else if (value == CONFIG_VALUE(NO)) {
                 _threadBindingType = IStreamsExecutor::ThreadBindingType::NONE;
             } else {
-                THROW_IE_EXCEPTION << "Wrong value for property key " << CONFIG_KEY(CPU_BIND_THREAD)
+                IE_THROW() << "Wrong value for property key " << CONFIG_KEY(CPU_BIND_THREAD)
                                    << ". Expected only YES(binds to cores) / NO(no binding) / NUMA(binds to NUMA nodes)";
             }
         } else if (key == CONFIG_KEY(CPU_THROUGHPUT_STREAMS)) {
             if (value == CONFIG_VALUE(CPU_THROUGHPUT_NUMA)) {
-                _streams = getAvailableNUMANodes().size();
+                _streams = static_cast<int>(getAvailableNUMANodes().size());
             } else if (value == CONFIG_VALUE(CPU_THROUGHPUT_AUTO)) {
-                const int sockets = getAvailableNUMANodes().size();
+                const int sockets = static_cast<int>(getAvailableNUMANodes().size());
                 // bare minimum of streams (that evenly divides available number of core)
                 const int num_cores = sockets == 1 ? std::thread::hardware_concurrency() : getNumberOfCPUCores();
                 if (0 == num_cores % 4)
@@ -63,23 +69,26 @@ void IStreamsExecutor::Config::SetConfig(const std::string& key, const std::stri
                 try {
                     val_i = std::stoi(value);
                 } catch (const std::exception&) {
-                    THROW_IE_EXCEPTION << "Wrong value for property key " << CONFIG_KEY(CPU_THROUGHPUT_STREAMS)
+                    IE_THROW() << "Wrong value for property key " << CONFIG_KEY(CPU_THROUGHPUT_STREAMS)
                                        << ". Expected only positive numbers (#streams) or "
                                        << "PluginConfigParams::CPU_THROUGHPUT_NUMA/CPU_THROUGHPUT_AUTO";
                 }
-                if (val_i > 0)
-                    _streams = val_i;
+                if (val_i < 0) {
+                    IE_THROW() << "Wrong value for property key " << CONFIG_KEY(CPU_THROUGHPUT_STREAMS)
+                                    << ". Expected only positive numbers (#streams)";
+                }
+                _streams = val_i;
             }
         } else if (key == CONFIG_KEY(CPU_THREADS_NUM)) {
             int val_i;
             try {
                 val_i = std::stoi(value);
             } catch (const std::exception&) {
-                THROW_IE_EXCEPTION << "Wrong value for property key " << CONFIG_KEY(CPU_THREADS_NUM)
+                IE_THROW() << "Wrong value for property key " << CONFIG_KEY(CPU_THREADS_NUM)
                                    << ". Expected only positive numbers (#threads)";
             }
-            if (val_i <= 0) {
-                THROW_IE_EXCEPTION << "Wrong value for property key " << CONFIG_KEY(CPU_THREADS_NUM)
+            if (val_i < 0) {
+                IE_THROW() << "Wrong value for property key " << CONFIG_KEY(CPU_THREADS_NUM)
                                    << ". Expected only positive numbers (#threads)";
             }
             _threads = val_i;
@@ -88,16 +97,16 @@ void IStreamsExecutor::Config::SetConfig(const std::string& key, const std::stri
             try {
                 val_i = std::stoi(value);
             } catch (const std::exception&) {
-                THROW_IE_EXCEPTION << "Wrong value for property key " << CONFIG_KEY_INTERNAL(CPU_THREADS_PER_STREAM)
+                IE_THROW() << "Wrong value for property key " << CONFIG_KEY_INTERNAL(CPU_THREADS_PER_STREAM)
                                    << ". Expected only non negative numbers (#threads)";
             }
             if (val_i < 0) {
-                THROW_IE_EXCEPTION << "Wrong value for property key " << CONFIG_KEY_INTERNAL(CPU_THREADS_PER_STREAM)
+                IE_THROW() << "Wrong value for property key " << CONFIG_KEY_INTERNAL(CPU_THREADS_PER_STREAM)
                                    << ". Expected only non negative numbers (#threads)";
             }
             _threadsPerStream = val_i;
         } else {
-            THROW_IE_EXCEPTION << "Wrong value for property key " << key;
+            IE_THROW() << "Wrong value for property key " << key;
         }
 }
 
@@ -121,9 +130,22 @@ Parameter IStreamsExecutor::Config::GetConfig(const std::string& key) {
     } else if (key == CONFIG_KEY_INTERNAL(CPU_THREADS_PER_STREAM)) {
         return {_threadsPerStream};
     } else {
-        THROW_IE_EXCEPTION << "Wrong value for property key " << key;
+        IE_THROW() << "Wrong value for property key " << key;
     }
     return {};
+}
+
+IStreamsExecutor::Config IStreamsExecutor::Config::MakeDefaultMultiThreaded(const IStreamsExecutor::Config& initial) {
+    const auto envThreads = parallel_get_env_threads();
+    const auto& numaNodes = getAvailableNUMANodes();
+    const auto numaNodesNum = numaNodes.size();
+    auto streamExecutorConfig = initial;
+    const auto hwCores = streamExecutorConfig._streams > 1 && numaNodesNum == 1 ? parallel_get_max_threads() : getNumberOfCPUCores();
+    const auto threads = streamExecutorConfig._threads ? streamExecutorConfig._threads : (envThreads ? envThreads : hwCores);
+    streamExecutorConfig._threadsPerStream = streamExecutorConfig._streams
+                                            ? std::max(1, threads/streamExecutorConfig._streams)
+                                            : threads;
+    return streamExecutorConfig;
 }
 
 }  //  namespace InferenceEngine

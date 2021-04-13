@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -6,7 +6,7 @@
 #include "ngraph_reader_tests.hpp"
 TEST_F(NGraphReaderTests, ReadSqueeze) {
     std::string model = R"V0G0N(
-<net name="Reshape" version="10">
+<net name="Network" version="10">
     <layers>
         <layer id="0" name="data" type="Parameter" version="opset1">
             <data element_type="f32" shape="1,2048,1,1"/>
@@ -20,7 +20,7 @@ TEST_F(NGraphReaderTests, ReadSqueeze) {
             </output>
         </layer>
         <layer id="1" name="const1" precision="I64" type="Const" version="opset1">
-            <data offset="0" size="8"/>
+            <data element_type="i64" offset="0" shape="1" size="8"/>
             <output>
                 <port id="1" precision="I64">
                     <dim>1</dim>
@@ -65,7 +65,7 @@ TEST_F(NGraphReaderTests, ReadSqueeze) {
 </net>
 )V0G0N";
     std::string modelV5 = R"V0G0N(
-<net name="Convolution" version="5" precision="FP32" batch="1">
+<net name="Network" version="5" precision="FP32" batch="1">
     <layers>
         <layer id="0" name="data" precision="FP32" type="Input">
             <output>

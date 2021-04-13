@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -9,7 +9,6 @@
 
 #include <gtest/gtest.h>
 
-#include <ie_builders.hpp>
 #include <ie_precision.hpp>
 
 #include "single_layer_common.hpp"
@@ -29,7 +28,7 @@ static constexpr char ENV_HDDL_R[]  = "IE_VPU_ENABLE_PER_LAYER_TESTS_HDDL";
     }                                                            \
 }
 
-#if defined(_WIN32) || defined(WIN32)
+#ifdef _WIN32
     #define DISABLE_ON_WINDOWS_IF(expr) DISABLE_IF((expr))
 #else
     #define DISABLE_ON_WINDOWS_IF(expr)
@@ -74,22 +73,7 @@ static bool hasAppropriateStick(const config_t &config) {
         suitsConfig = hasRequestedMyriad2 || hasRequestedMyriadX;
     }
 
-    bool suitsDeprecatedConfig;
-    // Deprecated api
-    IE_SUPPRESS_DEPRECATED_START
-    platform = config.find(VPU_CONFIG_KEY(PLATFORM));
-    if (platform == config.end() || platform->second.empty()) {
-        suitsDeprecatedConfig = hasMyriad2() || hasMyriadX();
-    } else {
-        bool hasRequestedMyriad2 =
-                platform->second == VPU_CONFIG_VALUE(2450) && hasMyriad2();
-        bool hasRequestedMyriadX =
-                platform->second == VPU_CONFIG_VALUE(2480) && hasMyriadX();
-        suitsDeprecatedConfig = hasRequestedMyriad2 || hasRequestedMyriadX;
-    }
-    IE_SUPPRESS_DEPRECATED_END
-
-    return suitsConfig && suitsDeprecatedConfig;
+    return suitsConfig;
 }
 
 static bool hasHDDL_R() {

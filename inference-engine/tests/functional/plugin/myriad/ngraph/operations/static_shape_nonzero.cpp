@@ -1,4 +1,4 @@
-// Copyright (C) 2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -6,10 +6,9 @@
 
 #include <common_test_utils/test_common.hpp>
 
-#include <ngraph/op/parameter.hpp>
+#include <ngraph/opsets/opset3.hpp>
 #include <ngraph/function.hpp>
 
-#include <details/ie_exception.hpp>
 
 #include <gtest/gtest.h>
 
@@ -18,19 +17,27 @@ namespace {
 using TensorType  = ngraph::element::Type;
 using TensorShape = ngraph::PartialShape;
 
+typedef std::tuple<
+    TensorType, // input type
+    TensorShape, // input shape
+    TensorType // output type
+> staticShapeNonZeroTestParams;
+
 class StaticShapeNonZeroTests
         : public CommonTestUtils::TestsCommon,
-          public testing::WithParamInterface<std::tuple<TensorType, TensorShape>> {
+          public testing::WithParamInterface<staticShapeNonZeroTestParams> {
 public:
     void SetUp() override {
         const auto& parameters  = GetParam();
         const auto& tensorType  = std::get<0>(parameters);
         const auto& tensorShape = std::get<1>(parameters);
+        m_outputType            = std::get<2>(parameters);
 
-        m_param = std::make_shared<ngraph::op::Parameter>(tensorType, tensorShape);
+        m_param = std::make_shared<ngraph::opset3::Parameter>(tensorType, tensorShape);
     }
 protected:
-    std::shared_ptr<ngraph::op::Parameter> m_param;
+    std::shared_ptr<ngraph::opset3::Parameter> m_param;
+    ngraph::element::Type m_outputType;
 };
 
 std::vector<ngraph::PartialShape> testStaticShapes {
@@ -47,7 +54,7 @@ std::vector<ngraph::PartialShape> testDynamicShapes {
 };
 
 std::vector<ngraph::element::Type> testNGraphNumericTypes {
-        ngraph::element::dynamic,
+        ngraph::element::boolean,
         ngraph::element::bf16,
         ngraph::element::f16,
         ngraph::element::f32,
@@ -63,49 +70,71 @@ std::vector<ngraph::element::Type> testNGraphNumericTypes {
         ngraph::element::u64,
 };
 
+std::vector<ngraph::element::Type> outputTypes {
+        ngraph::element::i32,
+        ngraph::element::i64,
+};
+
+
 //
 // Positive tests
 //
 
 TEST_P(StaticShapeNonZeroTests, CanValidateAndInferTypes) {
-    std::shared_ptr<ngraph::op::StaticShapeNonZero> op;
-    ASSERT_NO_THROW(op = std::make_shared<ngraph::op::StaticShapeNonZero>(m_param));
-    ASSERT_NO_THROW(std::make_shared<ngraph::Function>(
+    std::shared_ptr<ngraph::vpu::op::StaticShapeNonZero> op;
+    ASSERT_NO_THROW(op = std::make_shared<ngraph::vpu::op::StaticShapeNonZero>(m_param, m_outputType));
+    ASSERT_NO_THROW(auto fun = std::make_shared<ngraph::Function>(
             ngraph::OutputVector{op->output(0), op->output(1)},
             ngraph::ParameterVector{m_param}));
 }
 
-INSTANTIATE_TEST_CASE_P(NGraph, StaticShapeNonZeroTests, testing::Combine(
+INSTANTIATE_TEST_CASE_P(smoke_NGraph, StaticShapeNonZeroTests, testing::Combine(
         testing::ValuesIn(testNGraphNumericTypes),
-        testing::ValuesIn(testStaticShapes))
+        testing::ValuesIn(testStaticShapes),
+        testing::ValuesIn(outputTypes))
 );
 
 //
 // Negative tests
 //
 
-class StaticShapeNonZeroTestsNegativeDataType : public StaticShapeNonZeroTests {};
-TEST_P(StaticShapeNonZeroTestsNegativeDataType, ThrowsOnInvalidDataType) {
-    std::shared_ptr<ngraph::op::StaticShapeNonZero> op;
-    ASSERT_THROW(op = std::make_shared<ngraph::op::StaticShapeNonZero>(m_param),
+using StaticShapeNonZeroTestsNegativeInputDataType = StaticShapeNonZeroTests;
+TEST_P(StaticShapeNonZeroTestsNegativeInputDataType, ThrowsOnInvalidInputType) {
+    std::shared_ptr<ngraph::vpu::op::StaticShapeNonZero> op;
+    ASSERT_THROW(op = std::make_shared<ngraph::vpu::op::StaticShapeNonZero>(m_param, m_outputType),
                  ngraph::NodeValidationFailure);
 }
 
-INSTANTIATE_TEST_CASE_P(NGraph, StaticShapeNonZeroTestsNegativeDataType, testing::Combine(
-        testing::Values(ngraph::element::boolean),
-        testing::ValuesIn(testStaticShapes))
+INSTANTIATE_TEST_CASE_P(smoke_NGraph, StaticShapeNonZeroTestsNegativeInputDataType, testing::Combine(
+        testing::Values(ngraph::element::dynamic),
+        testing::ValuesIn(testStaticShapes),
+        testing::ValuesIn(outputTypes))
 );
 
-class StaticShapeNonZeroTestsNegativeDataShape : public StaticShapeNonZeroTests {};
+using StaticShapeNonZeroTestsNegativeDataShape = StaticShapeNonZeroTests;
 TEST_P(StaticShapeNonZeroTestsNegativeDataShape, ThrowsOnInvalidDataShape) {
-    std::shared_ptr<ngraph::op::StaticShapeNonZero> op;
-    ASSERT_THROW(op = std::make_shared<ngraph::op::StaticShapeNonZero>(m_param),
+    std::shared_ptr<ngraph::vpu::op::StaticShapeNonZero> op;
+    ASSERT_THROW(op = std::make_shared<ngraph::vpu::op::StaticShapeNonZero>(m_param, m_outputType),
                  ngraph::NodeValidationFailure);
 }
 
-INSTANTIATE_TEST_CASE_P(NGraph, StaticShapeNonZeroTestsNegativeDataShape, testing::Combine(
+INSTANTIATE_TEST_CASE_P(smoke_NGraph, StaticShapeNonZeroTestsNegativeDataShape, testing::Combine(
         testing::ValuesIn(testNGraphNumericTypes),
-        testing::ValuesIn(testDynamicShapes))
+        testing::ValuesIn(testDynamicShapes),
+        testing::ValuesIn(outputTypes))
+);
+
+using StaticShapeNonZeroTestsNegativeOutputDataType = StaticShapeNonZeroTests;
+TEST_P(StaticShapeNonZeroTestsNegativeOutputDataType, ThrowsOnInvalidOutputType) {
+    std::shared_ptr<ngraph::vpu::op::StaticShapeNonZero> op;
+    ASSERT_THROW(op = std::make_shared<ngraph::vpu::op::StaticShapeNonZero>(m_param, m_outputType),
+                 ngraph::NodeValidationFailure);
+}
+
+INSTANTIATE_TEST_CASE_P(smoke_NGraph, StaticShapeNonZeroTestsNegativeOutputDataType, testing::Combine(
+        testing::ValuesIn(testNGraphNumericTypes),
+        testing::ValuesIn(testStaticShapes),
+        testing::Values(ngraph::element::boolean))
 );
 
 }  // namespace

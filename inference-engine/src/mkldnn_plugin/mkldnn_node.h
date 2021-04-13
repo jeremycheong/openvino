@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -8,31 +8,27 @@
 #include <memory>
 #include <vector>
 #include <string>
-#include <map>
 #include <cassert>
 #include <algorithm>
+#include <caseless.hpp>
 #include <ie_common.h>
-#include <ie_profiling.hpp>
-#include <ie_layers_property.hpp>
-#include "details/caseless.hpp"
 #include "mkldnn_dims.h"
 #include "mkldnn_memory.h"
 #include "mkldnn_edge.h"
 #include "mkldnn_descriptor.h"
+#include "mkldnn_selective_build.h"
 #include "mkldnn/iml_type_mapper.h"
 #include "mkldnn_extension_mngr.h"
 #include "mkldnn_primitive.h"
+#include "mkldnn_weights_cache.hpp"
 #include "mkldnn.hpp"
+#include <openvino/itt.hpp>
+#include <ngraph/node.hpp>
 
 namespace MKLDNNPlugin {
 
 using MKLDNNNodePtr = std::shared_ptr<MKLDNNNode>;
 using MKLDNNNodeWeakPtr = std::weak_ptr<MKLDNNNode>;
-
-using CreatorByLayerFunction = std::function<MKLDNNNode *(const InferenceEngine::CNNLayerPtr& layer, const mkldnn::engine& eng, int socket)>;
-struct MKLDNNNodesHolder {
-    std::map<std::string, CreatorByLayerFunction> nodes;
-};
 
 enum Type {
     Unknown,
@@ -50,17 +46,18 @@ enum Type {
     SoftMax,
     Split,
     Concatenation,
-    Power,
     Eltwise,
     Gemm,
-    Crop,
     Reshape,
     Tile,
     SimplerNMS,
+    ROIAlign,
     ROIPooling,
     BatchNormalization,
     Flatten,
+    Pad,
     Permute,
+    StridedSlice,
     Copy,
     MemoryOutput,
     MemoryInput,
@@ -72,7 +69,23 @@ enum Type {
     TensorIterator,
     Convert,
     MVN,
-    Resample
+    Normalize,
+    ScatterUpdate,
+    ScatterElementsUpdate,
+    ScatterNDUpdate,
+    Interpolate,
+    ReduceAnd,
+    ReduceL1,
+    ReduceL2,
+    ReduceLogSum,
+    ReduceLogSumExp,
+    ReduceMax,
+    ReduceMean,
+    ReduceMin,
+    ReduceOr,
+    ReduceProd,
+    ReduceSum,
+    ReduceSumSquare
 };
 
 Type TypeFromName(const std::string type);
@@ -107,26 +120,28 @@ static std::string NameFromType(Type type) {
             return "Split";
         case Concatenation:
             return "Concatenation";
-        case Power:
-            return "Power";
         case Depthwise:
             return "Depthwise";
-        case Crop:
-            return "Crop";
         case Reshape:
             return "Reshape";
         case Tile:
             return "Tile";
         case SimplerNMS:
             return "SimplerNMS";
+        case ROIAlign:
+            return "ROIAlign";
         case ROIPooling:
             return "ROIPooling";
         case BatchNormalization:
             return "BatchNormalization";
         case Flatten:
             return "Flatten";
+        case Pad:
+            return "Pad";
         case Permute:
             return "Permute";
+        case StridedSlice:
+            return "StridedSlice";
         case Copy:
             return "Copy";
         case MemoryOutput:
@@ -151,8 +166,40 @@ static std::string NameFromType(Type type) {
             return "TensorIterator";
         case Convert:
             return "Convert";
-        case Resample:
-            return "Resample";
+        case Normalize:
+            return "Normalize";
+        case ScatterUpdate:
+            return "ScatterUpdate";
+        case ScatterElementsUpdate:
+            return "ScatterElementsUpdate";
+        case ScatterNDUpdate:
+            return "ScatterNDUpdate";
+        case Interpolate:
+            return "Interpolate";
+        case ReduceAnd:
+            return "ReduceAnd";
+        case ReduceL1:
+            return "ReduceL1";
+        case ReduceL2:
+            return "ReduceL2";
+        case ReduceLogSum:
+            return "ReduceLogSum";
+        case ReduceLogSumExp:
+            return "ReduceLogSumExp";
+        case ReduceMax:
+            return "ReduceMax";
+        case ReduceMean:
+            return "ReduceMean";
+        case ReduceMin:
+            return "ReduceMin";
+        case ReduceOr:
+            return "ReduceOr";
+        case ReduceProd:
+            return "ReduceProd";
+        case ReduceSum:
+            return "ReduceSum";
+        case ReduceSumSquare:
+            return "ReduceSumSquare";
         default:
             return "Unknown";
     }
@@ -160,16 +207,16 @@ static std::string NameFromType(Type type) {
 
 class PrimitiveDescInfo {
 public:
-    PrimitiveDescInfo(const InferenceEngine::LayerConfig conf, impl_desc_type type): config(conf) {
+    PrimitiveDescInfo(const InferenceEngine::LayerConfig& conf, impl_desc_type type): config(conf) {
         implementationType = type;
     }
 
-    PrimitiveDescInfo(const InferenceEngine::LayerConfig conf, impl_desc_type type, std::vector<mkldnn::memory::format> outFmt): config(conf) {
+    PrimitiveDescInfo(const InferenceEngine::LayerConfig& conf, impl_desc_type type, const std::vector<mkldnn::memory::format_tag>& outFmts): config(conf) {
         implementationType = type;
-        outputLayouts = outFmt;
+        outputLayouts = outFmts;
     }
 
-    PrimitiveDescInfo(const InferenceEngine::LayerConfig conf, impl_desc_type type, mkldnn::memory::format outFmt): config(conf) {
+    PrimitiveDescInfo(const InferenceEngine::LayerConfig& conf, impl_desc_type type, mkldnn::memory::format_tag outFmt): config(conf) {
         implementationType = type;
 
         setOutputLayouts(outFmt);
@@ -191,7 +238,7 @@ public:
         return implementationType;
     }
 
-    const std::vector<mkldnn::memory::format>& getOutputLayouts() const {
+    const std::vector<mkldnn::memory::format_tag>& getOutputLayouts() const {
         return outputLayouts;
     }
 
@@ -199,7 +246,7 @@ public:
         implementationType = type;
     }
 
-    void setOutputLayouts(mkldnn::memory::format outFmt) {
+    void setOutputLayouts(mkldnn::memory::format_tag outFmt) {
         outputLayouts.clear();
 
         for (int i = 0; i < config.outConfs.size(); i++) {
@@ -210,16 +257,46 @@ public:
 private:
     InferenceEngine::LayerConfig config;
     impl_desc_type implementationType;
-    std::vector<mkldnn::memory::format> outputLayouts;
+    std::vector<mkldnn::memory::format_tag> outputLayouts;
 };
 
 class MKLDNNNode : public InferenceEngine::details::no_copy {
 public:
-    static void AddNode(const std::string& name, CreatorByLayerFunction factory);
-    static std::shared_ptr<MKLDNNNodesHolder> GetNodesHolder();
+    template<typename T, int N>
+    struct Tag {};
 
-    static MKLDNNNode* CreateNode(const InferenceEngine::CNNLayerPtr& layer, const mkldnn::engine& eng,
-                                  const MKLDNNExtensionManager::Ptr& extMgr, int socket = 0);
+    struct PerfCounters {
+        PerfCounters(std::string const& name)
+            : execute(openvino::itt::handle(name))
+            , getSupportedDescriptors(openvino::itt::handle<Tag<MKLDNNNode, 0>>("MKLDNNNode::getSupportedDescriptors"))
+            , initSupportedPrimitiveDescriptors(openvino::itt::handle<Tag<MKLDNNNode, 1>>("MKLDNNNode::initSupportedPrimitiveDescriptors"))
+            , filterSupportedPrimitiveDescriptors(openvino::itt::handle<Tag<MKLDNNNode, 2>>("MKLDNNNode::filterSupportedPrimitiveDescriptors"))
+            , selectOptimalPrimitiveDescriptor(openvino::itt::handle<Tag<MKLDNNNode, 3>>("MKLDNNNode::selectOptimalPrimitiveDescriptor"))
+            , createPrimitive(openvino::itt::handle<Tag<MKLDNNNode, 4>>("MKLDNNNode::createPrimitive"))
+            , initOptimalPrimitiveDescriptor(openvino::itt::handle<Tag<MKLDNNNode, 5>>("MKLDNNNode::initOptimalPrimitiveDescriptor"))
+        {}
+
+        template<typename NodeType>
+        void buildClassCounters(const std::string& type_name) {
+            getSupportedDescriptors = openvino::itt::handle<Tag<NodeType, 0>>(type_name + "::getSupportedDescriptors");
+            initSupportedPrimitiveDescriptors = openvino::itt::handle<Tag<NodeType, 1>>(type_name + "::initSupportedPrimitiveDescriptors");
+            filterSupportedPrimitiveDescriptors = openvino::itt::handle<Tag<NodeType, 2>>(type_name + "::filterSupportedPrimitiveDescriptors");
+            selectOptimalPrimitiveDescriptor = openvino::itt::handle<Tag<NodeType, 3>>(type_name + "::selectOptimalPrimitiveDescriptor");
+            createPrimitive = openvino::itt::handle<Tag<NodeType, 4>>(type_name + "::createPrimitive");
+            initOptimalPrimitiveDescriptor = openvino::itt::handle<Tag<NodeType, 5>>(type_name + "::initOptimalPrimitiveDescriptor");
+        }
+
+        openvino::itt::handle_t execute;
+        openvino::itt::handle_t getSupportedDescriptors;
+        openvino::itt::handle_t initSupportedPrimitiveDescriptors;
+        openvino::itt::handle_t filterSupportedPrimitiveDescriptors;
+        openvino::itt::handle_t selectOptimalPrimitiveDescriptor;
+        openvino::itt::handle_t createPrimitive;
+        openvino::itt::handle_t initOptimalPrimitiveDescriptor;
+    };
+
+    class NodesFactory;
+    static NodesFactory & factory();
 
     ~MKLDNNNode() override = default;
 
@@ -329,6 +406,13 @@ public:
     void resolveNotAllocatedEdges();
     virtual void execute(mkldnn::stream strm);
     virtual void initSupportedPrimitiveDescriptors();
+
+    /**
+     * @brief Filters supportedPrimitiveDescriptors according to the input layouts specified in inputMemoryFormatsFilter
+     * and output layouts specified in outputMemoryFormatsFilter
+     */
+    virtual void filterSupportedPrimitiveDescriptors();
+
     virtual void createPrimitive() = 0;
 
     virtual void selectOptimalPrimitiveDescriptor();
@@ -358,7 +442,10 @@ public:
             if (srcDescs.empty() || selectedDescs.empty())
                 return false;
             for (size_t i = 0; i < srcDescs.size() && i < selectedDescs.size(); i++) {
-                if (srcDescs[i] != selectedDescs[i].desc && srcDescs[i].getLayout() != InferenceEngine::Layout::ANY)
+                if (!(srcDescs[i].getBlockingDesc() == selectedDescs[i].desc.getBlockingDesc() &&
+                      srcDescs[i].getPrecision() == selectedDescs[i].desc.getPrecision() &&
+                      srcDescs[i].getDims() == selectedDescs[i].desc.getDims()) &&
+                      srcDescs[i].getLayout() != InferenceEngine::Layout::ANY)
                     return false;
             }
             return true;
@@ -366,12 +453,12 @@ public:
 
         const PrimitiveDescInfo *selected_pd = getSelectedPrimitiveDescriptor();
         if (selected_pd == nullptr)
-            THROW_IE_EXCEPTION << "Preferable primitive descriptor is not set for node " << getName() << ".";
+            IE_THROW() << "Preferable primitive descriptor is not set for node " << getName() << ".";
 
         for (const auto& desc : descs) {
             auto itpd = desc.createPrimitiveDescriptorIterator(engine, attr);
 
-            while (itpd.is_not_end())  {
+            while (static_cast<bool>(itpd))  {
                 std::vector<InferenceEngine::TensorDesc> srcDescs;
                 for (size_t i = 0; i < descInputNumbers(desc); i++)
                     srcDescs.push_back(getSrcMemDesc(itpd, i));
@@ -380,21 +467,21 @@ public:
                 for (size_t i = 0; i < descOutputNumbers(desc); i++)
                     dstDescs.push_back(getDstMemDesc(itpd, i));
 
-                impl_desc_type impl_type = parse_impl_name(itpd.get_impl_info_str());
+                impl_desc_type impl_type = parse_impl_name(itpd.impl_info_str());
 
                 if (impl_type == selected_pd->getImplementationType() &&
                     descsEqual(srcDescs, selected_pd->getConfig().inConfs) &&
                     descsEqual(dstDescs, selected_pd->getConfig().outConfs)) {
                     prepareMemory(selected_pd, itpd);
                     PD prim_desc = createPd<PD, D, FPD>(desc);
-                    itpd.getPrimitiveDescriptor(prim_desc);
-                    return prim_desc;
+                    return {itpd.get()};
                 }
-                itpd++;
+                if (!itpd.next_impl())
+                    break;
             }
         }
 
-        THROW_IE_EXCEPTION << "Primitive descriptor was not found for node " << getName() << ".";
+        IE_THROW() << "Primitive descriptor was not found for node " << getName() << ".";
     }
 
     static void invertVectorCopyUtoI(const InferenceEngine::PropertyVector<unsigned int>& src, std::vector<ptrdiff_t>& dst) {
@@ -422,18 +509,19 @@ public:
         return desc.outputNumbers();
     }
 
-    template<typename To>
-    class Register {
-    public:
-        explicit Register(const std::string& type) {
-            MKLDNNNode::AddNode(type,
-                    [](const InferenceEngine::CNNLayerPtr& layer, const mkldnn::engine& eng, int socket)
-                    -> MKLDNNNode* {
-                        return new To(layer, eng, socket);
-                    });
-        }
-    };
+    const PerfCounters & perfCounters() const {
+        return profiling;
+    }
 
+    PerfCounters & perfCounters() {
+        return profiling;
+    }
+
+    /**
+     * @brief Returns runtime node precision based on input/output data types or data type used for computations
+     * @return Runtime node precision
+     */
+    virtual InferenceEngine::Precision getRuntimePrecision() const;
 
 protected:
     // TODO: It is necessary only in order to avoid modifications of cnnLayers and original topology
@@ -465,10 +553,12 @@ protected:
     std::vector <MKLDNNNodePtr> fusedWith;
     std::vector <MKLDNNNodePtr> mergedWith;
     std::vector <impl_desc_type> implPriorities;
+    std::vector <mkldnn::memory::format_tag> inputMemoryFormatsFilter;
+    std::vector <mkldnn::memory::format_tag> outputMemoryFormatsFilter;
 
     std::string originalLayers;  // contains names of the original layers separated by comma
 
-    MKLDNNNode(const InferenceEngine::CNNLayerPtr& layer, const mkldnn::engine& eng, int socket);
+    MKLDNNNode(const InferenceEngine::CNNLayerPtr& layer, const mkldnn::engine& eng, MKLDNNWeightsSharing::Ptr &w_cache);
 
     int selectedPrimitiveDescriptorIndex = -1;
     bool permanent = false;
@@ -483,10 +573,12 @@ protected:
     std::vector<InferenceEngine::Blob::Ptr> internalBlobs;
     std::vector<MKLDNNMemoryPtr> internalBlobMemory;
     std::vector<PrimitiveDescInfo> supportedPrimitiveDescriptors;
+    std::unordered_map<int, mkldnn::memory> primArgs;
     MKLDNNPrimitive prim;
     std::vector<MKLDNNDescriptor> descs;
 
     InferenceEngine::Blob::Ptr ext_scales;
+    MKLDNNWeightsSharing::Ptr weightCache;
 
     friend class MKLDNNEdge;
     friend class MKLDNNGraph;
@@ -499,20 +591,24 @@ protected:
 
     virtual const std::vector<impl_desc_type>& getPrimitivesPriority();
 
-    std::vector<mkldnn::memory::format> getAvailableFormatsForDims(const MKLDNNDims& dims) const;
+    virtual std::vector<mkldnn::memory::format_tag> getAvailableFormatsForDims(const MKLDNNDims& dims) const;
     int batchToProcess();
-    int whichSocket() { return socket; }
-
-    // TODO: While CPU plugin has no ease way to clone graph object we use weight
-    //       caching in global Engine context to avoid tensor duplication. Just to
-    //       improve memory consumption in case of throughput streams when we have
-    //       duplicate of graph for single input ICNNNetwork.
-    //       Remove this flag when graph clone functionality will be added.
-    void enableWeightCaching(bool val) { weight_caching = val; }
 
     InferenceEngine::Blob::Ptr createInternalBlob(InferenceEngine::SizeVector dims, bool weights, bool is_grouped = false);
 
     InferenceEngine::Layout getWeightsLayoutByDims(InferenceEngine::SizeVector dims, bool isGrouped);
+
+    /**
+     * @brief Auxiliary function to get node input precisions
+     * @return Vector of precisions based on information from node input edges. Return empty vector in case edges are not initialized yet.
+     */
+    virtual std::vector<InferenceEngine::Precision> getInputPrecisions() const;
+
+    /**
+     * @brief Auxiliary function to get node output precisions
+     * @return Vector of precisions based on information from node output edges. Return empty vector in case edges are not initialized yet.
+     */
+    virtual std::vector<InferenceEngine::Precision> getOutputPrecisions() const;
 
 private:
     std::vector<MKLDNNEdgeWeakPtr> parentEdges;
@@ -525,13 +621,11 @@ private:
     const std::string typeStr;
     Type type;
     int execIndex = -1;
-    int socket;
-    bool weight_caching = false;
 
     std::string typeToStr(Type type);
 
     PerfCount perfCounter;
-    InferenceEngine::ProfilingTask profilingTask;
+    PerfCounters profiling;
 
     bool isEdgesEmpty(const std::vector<MKLDNNEdgeWeakPtr>& edges) const;
 
@@ -555,18 +649,35 @@ private:
     ConstantType checkConstant(LOOK look, std::vector<MKLDNNNodePtr>& checkNodes);
 };
 
-#define REG_MKLDNN_PRIM_FOR(__prim, __type) \
-static MKLDNNNode::Register<__prim> __reg__##__type(#__type)
+class MKLDNNNode::NodesFactory : public openvino::cc::Factory<Type,
+                                            MKLDNNNode*(const InferenceEngine::CNNLayerPtr&,
+                                                        const mkldnn::engine &,
+                                                        MKLDNNWeightsSharing::Ptr &)> {
+public:
+    NodesFactory()
+        : Factory("NodesFactory") {}
 
-template <typename T, typename U>
-inline T div_up(const T a, const U b) {
-    assert(b);
-    return (a + b - 1) / b;
-}
+    MKLDNNNode* create(const InferenceEngine::CNNLayerPtr& layer, const mkldnn::engine& eng,
+                       const MKLDNNExtensionManager::Ptr& extMgr, MKLDNNWeightsSharing::Ptr &w_cache);
+};
 
-template <typename T, typename U>
-inline T rnd_up(const T a, const U b) {
-    return div_up(a, b) * b;
-}
+template<typename MKLDNNNodeType>
+struct MKLDNNNodeImpl : public MKLDNNNodeType {
+    MKLDNNNodeImpl(const InferenceEngine::CNNLayerPtr& layer, const mkldnn::engine& eng, MKLDNNWeightsSharing::Ptr &cache)
+        : MKLDNNNodeType(layer, eng, cache) {
+        MKLDNNNodeType::perfCounters().template buildClassCounters<MKLDNNNodeType>(NameFromType(MKLDNNNodeType::getType()));
+    }
+};
+
+#define REG_MKLDNN_CONCAT3_(X, Y, Z) X ## Y ## Z
+#define REG_MKLDNN_CONCAT3(X, Y, Z) REG_MKLDNN_CONCAT3_(X, Y, Z)
+
+#define REG_MKLDNN_PRIM_FOR(__prim, __type)                                                 \
+static struct REG_MKLDNN_CONCAT3(Registrar4, __prim, __LINE__) {                            \
+    REG_MKLDNN_CONCAT3(Registrar4, __prim, __LINE__)() {                                    \
+        MKLDNNNode::factory()                                                               \
+            .registerNodeIfRequired(MKLDNNPlugin, __prim, __type, MKLDNNNodeImpl<__prim>);  \
+    }                                                                                       \
+} REG_MKLDNN_CONCAT3(_reg_, __prim, __LINE__);
 
 }  // namespace MKLDNNPlugin

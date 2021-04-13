@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -43,7 +43,7 @@ bool PassImpl::isApplicable(const Stage& copyStage) {
     IE_ASSERT(copyInput->producerEdge() != nullptr);
     IE_ASSERT(copyInput->desc().dimsOrder() == copyOutput->desc().dimsOrder());
 
-    if (copyInput->parentDataEdge() != nullptr) {
+    if (copyInput->parentDataToDataEdge() != nullptr) {
         return false;
     }
     if (copyInput->numChildDatas() > 0) {
@@ -160,7 +160,7 @@ void PassImpl::run(const Model& model) {
             model->replaceStageInput(consumerEdge, copyOutput);
         }
 
-        auto allocRes = runAllocator(model, true);
+        auto allocRes = runAllocator(model, EnableShapeAllocation::NO, CheckOnlyCMX::YES);
         if (allocRes.status != AllocationStatus::OK) {
             model->replaceStageOutput(copyProducer->outputEdge(0), copyInput);
 

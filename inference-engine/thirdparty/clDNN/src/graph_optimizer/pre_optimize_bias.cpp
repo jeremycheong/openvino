@@ -1,18 +1,6 @@
-/*
-// Copyright (c) 2018 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -57,7 +45,6 @@ template void pre_optimize_bias::optimize_bias<deconvolution_node>(deconvolution
 template void pre_optimize_bias::optimize_bias<fully_connected_node>(fully_connected_node& node,
                                                                      reorder_factory& rf,
                                                                      program_impl& p);
-template void pre_optimize_bias::optimize_bias<embed_node>(embed_node& node, reorder_factory& rf, program_impl& p);
 
 void pre_optimize_bias::run(program_impl& p, reorder_factory& rf) {
     for (auto& prim : p.get_processing_order()) {
@@ -67,8 +54,6 @@ void pre_optimize_bias::run(program_impl& p, reorder_factory& rf) {
             optimize_bias(prim->as<deconvolution>(), rf, p);
         } else if (prim->type() == fully_connected::type_id()) {
             optimize_bias(prim->as<fully_connected>(), rf, p);
-        } else if (prim->type() == embed::type_id()) {
-            optimize_bias(prim->as<embed>(), rf, p);
         }
     }
 }

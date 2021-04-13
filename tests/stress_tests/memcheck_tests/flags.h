@@ -1,3 +1,7 @@
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
+//
+
 #pragma once
 
 #include "../common/utils.h"
@@ -20,14 +24,7 @@ static const char test_conf_message[] = "Optional. Path to a test config with de
 /// test_conf is an optional parameter
 DEFINE_string(test_conf, OS_PATH_JOIN({"stress_tests_configs", "memcheck_tests", "test_config.xml"}), test_conf_message);
 
-/// @brief message for env_config argument
-static const char env_conf_message[] = "Optional. Path to an env config with paths to models etc.";
-
-/// @brief Define parameter for set environment <br>
-/// env_conf is an optional parameter
-DEFINE_string(env_conf, OS_PATH_JOIN({"stress_tests_configs", "memcheck_tests", "env_config.xml"}), env_conf_message);
-
-/// @brief message for env_config argument
+/// @brief message for refs_config argument
 static const char refs_conf_message[] = "Optional. Path to a references config with values of memory consumption per test.";
 
 /// @brief Define parameter for set references' configuration <br>

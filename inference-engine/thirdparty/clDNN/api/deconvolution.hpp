@@ -1,18 +1,6 @@
-/*
-// Copyright (c) 2016 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 #pragma once
@@ -55,9 +43,9 @@ struct deconvolution : public primitive_base<deconvolution> {
           stride(stride),
           with_output_size(false),
           groups(1),
+          grouped_weights_shape(false),
           weights(weights),
-          bias(bias),
-          _gradient(false) {}
+          bias(bias) {}
     /// @brief Constructs deconvolution primitive.
     /// @param id This primitive id.
     /// @param input Input primitive id.
@@ -82,9 +70,9 @@ struct deconvolution : public primitive_base<deconvolution> {
           stride(stride),
           with_output_size(false),
           groups(groups),
+          grouped_weights_shape(false),
           weights(weights),
-          bias(bias),
-          _gradient(false) {}
+          bias(bias) {}
 
     /// @brief Constructs deconvolution primitive (w/o bias).
     /// @param id This primitive id.
@@ -100,16 +88,15 @@ struct deconvolution : public primitive_base<deconvolution> {
                   const std::vector<primitive_id>& weights,
                   tensor stride = {1, 1, 1, 1},
                   tensor input_offset = {0, 0, 0, 0},
-                  const padding& output_padding = padding(),
-                  bool gradient = false)
+                  const padding& output_padding = padding())
         : primitive_base(id, {input}, output_padding),
           input_offset(input_offset),
           stride(stride),
           with_output_size(false),
           groups(1),
+          grouped_weights_shape(false),
           weights(weights),
-          bias(std::vector<primitive_id>(0)),
-          _gradient(gradient) {}
+          bias(std::vector<primitive_id>(0)) {}
 
     /// @brief Constructs deconvolution primitive (w/o bias).
     /// @param id This primitive id.
@@ -127,16 +114,15 @@ struct deconvolution : public primitive_base<deconvolution> {
                   uint32_t groups,
                   tensor stride = {1, 1, 1, 1},
                   tensor input_offset = {0, 0, 0, 0},
-                  const padding& output_padding = padding(),
-                  bool gradient = false)
+                  const padding& output_padding = padding())
         : primitive_base(id, {input}, output_padding),
           input_offset(input_offset),
           stride(stride),
           with_output_size(false),
           groups(groups),
+          grouped_weights_shape(false),
           weights(weights),
-          bias(std::vector<primitive_id>(0)),
-          _gradient(gradient) {}
+          bias(std::vector<primitive_id>(0)) {}
 
     /// @brief Constructs deconvolution primitive (computes input paddings to match output size).
     /// @param id This primitive id.
@@ -163,9 +149,9 @@ struct deconvolution : public primitive_base<deconvolution> {
           with_output_size(true),
           output_size(output_size),
           groups(1),
+          grouped_weights_shape(false),
           weights(weights),
-          bias(bias),
-          _gradient(false) {}
+          bias(bias) {}
 
     /// @brief Constructs deconvolution primitive (computes input paddings to match output size).
     /// @param id This primitive id.
@@ -187,6 +173,7 @@ struct deconvolution : public primitive_base<deconvolution> {
                   tensor stride,
                   tensor input_offset,
                   tensor output_size,
+                  bool grouped_weights_shape,
                   const padding& output_padding = padding())
         : primitive_base(id, {input}, output_padding),
           input_offset(input_offset),
@@ -194,9 +181,9 @@ struct deconvolution : public primitive_base<deconvolution> {
           with_output_size(true),
           output_size(output_size),
           groups(groups),
+          grouped_weights_shape(grouped_weights_shape),
           weights(weights),
-          bias(bias),
-          _gradient(false) {}
+          bias(bias) {}
 
     /// @brief Constructs deconvolution primitive (w/o bias, computes input paddings to match output size).
     /// @param id This primitive id.
@@ -214,17 +201,16 @@ struct deconvolution : public primitive_base<deconvolution> {
                   tensor stride,
                   tensor input_offset,
                   tensor output_size,
-                  const padding& output_padding = padding(),
-                  bool gradient = false)
+                  const padding& output_padding = padding())
         : primitive_base(id, {input}, output_padding),
           input_offset(input_offset),
           stride(stride),
           with_output_size(true),
           output_size(output_size),
           groups(1),
+          grouped_weights_shape(false),
           weights(weights),
-          bias(std::vector<primitive_id>(0)),
-          _gradient(gradient) {}
+          bias(std::vector<primitive_id>(0)) {}
 
     /// @brief Constructs deconvolution primitive (computes input paddings to match output size).
     /// @param id This primitive id.
@@ -293,6 +279,8 @@ struct deconvolution : public primitive_base<deconvolution> {
     tensor output_size;
     /// @brief Number of feature groups (grouped convolution). If more than 1 then weights/bias count needs to be 1.
     uint32_t groups;
+    /// @param grouped_weights_shape Defines if weights tensor has explicit group dimension.
+    bool grouped_weights_shape;
     /// @brief List of primitive ids containing weights data.
     const primitive_id_arr weights;
     /// @brief List of primitive ids containing bias data.
@@ -300,12 +288,8 @@ struct deconvolution : public primitive_base<deconvolution> {
 
     /// @brief On how many cards split the computation to.
     int32_t split() const { return static_cast<int32_t>(weights.size()); }
-    /// @brief Indicates that deconvolution is used for convolution backward computation (convolution_grad_input)
-    bool gradient() const { return _gradient; }
 
 protected:
-    bool _gradient;
-
     std::vector<std::reference_wrapper<const primitive_id>> get_dependencies() const override {
         std::vector<std::reference_wrapper<const primitive_id>> ret;
         ret.reserve(weights.size() + bias.size());

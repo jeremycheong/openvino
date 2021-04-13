@@ -1,21 +1,19 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
 #include <utility>
 #include <memory>
 #include "hetero_async_infer_request.hpp"
-#include <ie_util_internal.hpp>
-#include <ie_profiling.hpp>
 
 using namespace HeteroPlugin;
 using namespace InferenceEngine;
 
-HeteroAsyncInferRequest::HeteroAsyncInferRequest(const HeteroInferRequest::Ptr& request,
-                                                 const ITaskExecutor::Ptr&      taskExecutor,
-                                                 const ITaskExecutor::Ptr&      callbackExecutor) :
+HeteroAsyncInferRequest::HeteroAsyncInferRequest(const InferRequestInternal::Ptr& request,
+                                                 const ITaskExecutor::Ptr&        taskExecutor,
+                                                 const ITaskExecutor::Ptr&        callbackExecutor) :
     AsyncInferRequestThreadSafeDefault(request, taskExecutor, callbackExecutor),
-    _heteroInferRequest(request),
+    _heteroInferRequest(std::static_pointer_cast<HeteroInferRequest>(request)),
     _statusCodes{_heteroInferRequest->_inferRequests.size(), StatusCode::OK} {
     _pipeline.clear();
     for (std::size_t requestId = 0; requestId < _heteroInferRequest->_inferRequests.size(); ++requestId) {
@@ -37,10 +35,13 @@ HeteroAsyncInferRequest::HeteroAsyncInferRequest(const HeteroInferRequest::Ptr& 
             Task            _task;
         };
 
-        auto reuestExecutor = std::make_shared<RequestExecutor>(_heteroInferRequest->_inferRequests[requestId]._request.get());
-        _pipeline.emplace_back(reuestExecutor, [reuestExecutor] {
-            if (StatusCode::OK != reuestExecutor->_status) {
-                THROW_IE_EXCEPTION << InferenceEngine::details::as_status << reuestExecutor->_status;
+        auto requestExecutor = std::make_shared<RequestExecutor>(_heteroInferRequest->_inferRequests[requestId]._request.get());
+        _pipeline.emplace_back(requestExecutor, [requestExecutor] {
+            if (StatusCode::OK != requestExecutor->_status) {
+                IE_EXCEPTION_SWITCH(requestExecutor->_status, ExceptionType,
+                    InferenceEngine::details::ThrowNow<ExceptionType>{}
+                        <<= std::stringstream{} << IE_LOCATION
+                        <<  InferenceEngine::details::ExceptionTraits<ExceptionType>::string());
             }
         });
     }

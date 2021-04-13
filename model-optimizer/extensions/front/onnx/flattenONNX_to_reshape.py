@@ -1,18 +1,5 @@
-"""
- Copyright (C) 2018-2020 Intel Corporation
-
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
-      http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
-"""
+# Copyright (C) 2018-2021 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 
 from extensions.ops.ReduceOps import ReduceProd
 from mo.front.common.partial_infer.utils import int64_array
@@ -47,10 +34,12 @@ class FlattenONNXToReshape(FrontReplacementSubgraph):
         assert node.has_valid('axis'), 'Flatten {} should have `axis` attribute extracted, but it\'s not'.format(name)
         axis = node.axis
 
+        reshape_node = Reshape(graph, {'name': node.id + '/Reshape'}).create_node()
+
         if axis == 0:
-            dim = Const(graph, {'value': int64_array([1, -1])}).create_node()
+            dim = Const(graph, {'value': int64_array([1, -1]), 'name': reshape_node.name + '/shape'}).create_node()
         elif axis == 1:
-            dim = Const(graph, {'value': int64_array([0, -1])}).create_node()
+            dim = Const(graph, {'value': int64_array([0, -1]), 'name': reshape_node.name + '/shape'}).create_node()
         else:
             shape = Shape(graph, {'name': name + '/input_shape'}).create_node()
 
@@ -58,8 +47,8 @@ class FlattenONNXToReshape(FrontReplacementSubgraph):
 
             axis_shape_portion = node_to_get_shape_value_of_indices(shape, idxs)
             first_dims = create_op_node_with_second_input(graph, ReduceProd, int64_array([0]),
-                                                          {'keep_dims': True})
-            second_dims = Const(graph, {'value': int64_array([-1])}).create_node()
+                                                          {'name': name + '/first_dims', 'keep_dims': True})
+            second_dims = Const(graph, {'value': int64_array([-1]), 'name': name + '/second_dims'}).create_node()
 
             node.in_port(0).get_source().connect(shape.in_port(0))
             axis_shape_portion.out_port(0).connect(first_dims.in_port(0))
@@ -68,7 +57,6 @@ class FlattenONNXToReshape(FrontReplacementSubgraph):
 
             dim = new_shape_node_from_shape_nodes(order_of_dims)
 
-        reshape_node = Reshape(graph, {'name': node.id + '/Reshape'}).create_node()
         reshape_node.in_port(1).connect(dim.out_port(0))
 
         node.out_port(0).get_connection().set_source(reshape_node.out_port(0))

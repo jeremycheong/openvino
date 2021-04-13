@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -105,7 +105,7 @@ void PassImpl::run(const Model& model) {
             continue;
         }
 
-        if (stage->type() == StageType::Concat) {
+        if (stage->type() == StageType::StubConcat) {
             _processor.processConcat(model, stage);
         } else if (stage->type() == StageType::Split) {
             _processor.processSplit(model, stage);

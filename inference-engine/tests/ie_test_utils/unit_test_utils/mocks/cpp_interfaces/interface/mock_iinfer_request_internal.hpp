@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -11,6 +11,7 @@
 #include <vector>
 
 #include <cpp_interfaces/impl/ie_infer_request_internal.hpp>
+#include <cpp_interfaces/impl/ie_variable_state_internal.hpp>
 
 class MockIInferRequestInternal : public InferenceEngine::IInferRequestInternal {
 public:
@@ -20,4 +21,5 @@ public:
     MOCK_METHOD2(GetBlob, void(const char *name, InferenceEngine::Blob::Ptr &));
     MOCK_METHOD3(SetBlob, void(const char*, const InferenceEngine::Blob::Ptr&, const InferenceEngine::PreProcessInfo&));
     MOCK_METHOD2(GetPreProcess, void(const char*, const InferenceEngine::PreProcessInfo**));
+    MOCK_METHOD0(QueryState, std::vector<InferenceEngine::IVariableStateInternal::Ptr>());
 };

@@ -1,4 +1,4 @@
-// Copyright (C) 2019 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -17,7 +17,6 @@ void getConvOutShape(const std::vector<size_t> &inShape,
     outShape.resize(inShape.size(), 1lu);
     outShape[0] = inShape[0];
     outShape[1] = params.out_c;
-    size_t in_size = inShape.size();
     for (int i = 0; i < params.kernel.size() && i + 2 < outShape.size(); i++) {
         outShape[i + 2] =
                 (inShape[i + 2] + params.pads_begin[i] + params.pads_end[i] -
@@ -58,7 +57,6 @@ void getPoolOutShape(const std::vector<size_t> &inShape,
     outShape.resize(inShape.size(), 1lu);
     outShape[0] = inShape[0];
     outShape[1] = inShape[1];
-    size_t in_size = inShape.size();
     for (int i = 0; i < params.kernel.size() && i + 2 < outShape.size(); i++) {
         outShape[i + 2] =
                 (inShape[i + 2] + params.pads_begin[i] + params.pads_end[i] - params.kernel[i]) / params.stride[i] +
@@ -155,7 +153,7 @@ InferenceEngine::Blob::Ptr getWeightsBlob(size_t sizeInBytes, const std::string 
             weights = InferenceEngine::make_shared_blob<dataType>(
                     {InferenceEngine::Precision::FP16, {sizeInBytes / sizeof(dataType)}, InferenceEngine::C});
         } else {
-            THROW_IE_EXCEPTION << "Precision " << precision << " is not covered by getWeightsBlob()";
+            IE_THROW() << "Precision " << precision << " is not covered by getWeightsBlob()";
         }
     }
 
@@ -169,7 +167,7 @@ void get_common_dims(const InferenceEngine::Blob &blob,
                      int32_t &dimx,
                      int32_t &dimy,
                      int32_t &dimz) {
-    std::vector<size_t> dims = blob.getTensorDesc().getDims();
+    std::vector<int32_t> dims(blob.getTensorDesc().getDims().begin(), blob.getTensorDesc().getDims().end());
     if (dims.size() == 2) {
         dimz = 1;
         dimy = dims[0];
@@ -190,7 +188,7 @@ void get_common_dims(const InferenceEngine::Blob &blob,
                      int32_t &dimy,
                      int32_t &dimz,
                      int32_t &dimn) {
-    std::vector<size_t> dims = blob.getTensorDesc().getDims();
+    std::vector<int32_t> dims(blob.getTensorDesc().getDims().begin(), blob.getTensorDesc().getDims().end());
     dimn = 1;
     if (dims.size() == 2) {
         dimz = 1;
@@ -211,14 +209,18 @@ void get_common_dims(const InferenceEngine::Blob &blob,
     }
 }
 
-void fillStatistic(Statistic &out, size_t size, float min, float max) {
-    float ampl = (max - min) / 4.f;
-    float center1 = min + ampl;
-    float center2 = max - ampl;
-    out.min.resize(size);
-    out.max.resize(size);
-    CommonTestUtils::fill_data_sine(out.min.data(), size, center1, ampl, 1);
-    CommonTestUtils::fill_data_sine(out.max.data(), size, center2, ampl, 1);
+std::ostream& operator<<(std::ostream & os, OpType type) {
+    switch (type) {
+        case OpType::SCALAR:
+            os << "SCALAR";
+            break;
+        case OpType::VECTOR:
+            os << "VECTOR";
+            break;
+        default:
+            IE_THROW() << "NOT_SUPPORTED_OP_TYPE";
+    }
+    return os;
 }
 
 }  // namespace CommonTestUtils

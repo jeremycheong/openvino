@@ -1,12 +1,10 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
 /**
- * @brief a header for advanced hardware related properties for IE plugins
- *
- *        To use in SetConfig() method of plugins
- *        LoadNetwork() method overloads that accept config as parameter
+ * @brief A header for advanced hardware related properties for IE plugins
+ *        To use in SetConfig, LoadNetwork, ImportNetwork methods of plugins
  *
  * @file ie_plugin_config.hpp
  */
@@ -92,18 +90,22 @@ DECLARE_METRIC_KEY(FULL_DEVICE_NAME, std::string);
  *
  * The possible values:
  *  - "FP32" - device can support FP32 models
+ *  - "BF16" - device can support BF16 computations for models
  *  - "FP16" - device can support FP16 models
  *  - "INT8" - device can support models with INT8 layers
  *  - "BIN" - device can support models with BIN layers
  *  - "WINOGRAD" - device can support models where convolution implemented via Winograd transformations
+ *  - "BATCHED_BLOB" - device can support BatchedBlob
  */
 DECLARE_METRIC_KEY(OPTIMIZATION_CAPABILITIES, std::vector<std::string>);
 
 DECLARE_METRIC_VALUE(FP32);
+DECLARE_METRIC_VALUE(BF16);
 DECLARE_METRIC_VALUE(FP16);
 DECLARE_METRIC_VALUE(INT8);
 DECLARE_METRIC_VALUE(BIN);
 DECLARE_METRIC_VALUE(WINOGRAD);
+DECLARE_METRIC_VALUE(BATCHED_BLOB);
 
 /**
  * @brief Metric to provide information about a range for streams on platforms where streams are supported.
@@ -140,6 +142,16 @@ DECLARE_METRIC_KEY(NUMBER_OF_WAITING_INFER_REQUESTS, unsigned int);
  * String value is "NUMBER_OF_EXEC_INFER_REQUESTS". This can be used as an executable network metric as well
  */
 DECLARE_METRIC_KEY(NUMBER_OF_EXEC_INFER_REQUESTS, unsigned int);
+
+/**
+ * @brief Metric which defines the device architecture.
+ */
+DECLARE_METRIC_KEY(DEVICE_ARCHITECTURE, std::string);
+
+/**
+ * @brief Metric which defines support of import/export functionality by plugin
+ */
+DECLARE_METRIC_KEY(IMPORT_EXPORT_SUPPORT, bool);
 
 /**
  * @brief Metric to get a name of network. String value is "NETWORK_NAME".
@@ -192,9 +204,9 @@ DECLARE_CONFIG_KEY(CPU_THREADS_NUM);
 /**
  * @brief The name for setting CPU affinity per thread option.
  *
- * It is passed to IInferencePlugin::SetConfig(), this option should be used with values:
+ * It is passed to Core::SetConfig(), this option should be used with values:
  * PluginConfigParams::YES (pinning threads to cores, best for static benchmarks),
- * PluginConfigParams::NUMA (pinning therads to NUMA nodes, best for real-life, contented cases)
+ * PluginConfigParams::NUMA (pinning threads to NUMA nodes, best for real-life, contented cases)
  * this is TBB-specific knob, and the only pinning option (beyond 'NO', below) on the Windows*
  * PluginConfigParams::NO (no pinning for CPU inference threads)
  * All settings are ignored, if the OpenVINO compiled with OpenMP threading and any affinity-related OpenMP's
@@ -206,8 +218,8 @@ DECLARE_CONFIG_VALUE(NUMA);
 /**
  * @brief Optimize CPU execution to maximize throughput.
  *
- * It is passed to IInferencePlugin::SetConfig(), this option should be used with values:
- * - KEY_CPU_THROUGHPUT_NUMA creates as many streams as needed to accomodate NUMA and avoid associated penalties
+ * It is passed to Core::SetConfig(), this option should be used with values:
+ * - KEY_CPU_THROUGHPUT_NUMA creates as many streams as needed to accommodate NUMA and avoid associated penalties
  * - KEY_CPU_THROUGHPUT_AUTO creates bare minimum of streams to improve the performance,
  *   this is the most portable option if you have no insights into how many cores you target machine will have
  *   (and what is the optimal number of streams)
@@ -220,7 +232,7 @@ DECLARE_CONFIG_KEY(CPU_THROUGHPUT_STREAMS);
 /**
  * @brief Optimize GPU plugin execution to maximize throughput.
  *
- * It is passed to IInferencePlugin::SetConfig(), this option should be used with values:
+ * It is passed to Core::SetConfig(), this option should be used with values:
  * - KEY_GPU_THROUGHPUT_AUTO creates bare minimum of streams that might improve performance in some cases,
  *   this option allows to enable throttle hint for opencl queue thus reduce CPU load without significant performance
  * drop
@@ -232,7 +244,7 @@ DECLARE_CONFIG_KEY(GPU_THROUGHPUT_STREAMS);
 /**
  * @brief The name for setting performance counters option.
  *
- * It is passed to IInferencePlugin::SetConfig(), this option should be used with values:
+ * It is passed to Core::SetConfig(), this option should be used with values:
  * PluginConfigParams::YES or PluginConfigParams::NO
  */
 DECLARE_CONFIG_KEY(PERF_COUNT);
@@ -260,7 +272,7 @@ DECLARE_CONFIG_KEY(DUMP_QUANTIZED_GRAPH_AS_IR);
 /**
  * @brief The key controls threading inside Inference Engine.
  *
- * It is passed to IInferencePlugin::SetConfig(), this option should be used with values:
+ * It is passed to Core::SetConfig(), this option should be used with values:
  * PluginConfigParams::YES or PluginConfigParams::NO
  */
 DECLARE_CONFIG_KEY(SINGLE_THREAD);
@@ -359,6 +371,26 @@ DECLARE_CONFIG_KEY(DUMP_EXEC_GRAPH_AS_DOT);
  * user's decision to use this option or not to use
  */
 DECLARE_CONFIG_KEY(ENFORCE_BF16);
+
+/**
+ * @brief This key defines the directory which will be used to store any data cached by plugins.
+ *
+ * The underlying cache structure is not defined and might differ between OpenVINO releases
+ * Cached data might be platform / device specific and might be invalid after OpenVINO version change
+ * If this key is not specified or value is empty string, then caching is disabled.
+ * The key might enable caching for the plugin using the following code:
+ *
+ * @code
+ * ie.SetConfig({{CONFIG_KEY(CACHE_DIR), "cache/"}}, "GPU"); // enables cache for GPU plugin
+ * @endcode
+ *
+ * The following code enables caching of compiled network blobs for devices where import/export is supported
+ *
+ * @code
+ * ie.SetConfig({{CONFIG_KEY(CACHE_DIR), "cache/"}}); // enables models cache
+ * @endcode
+ */
+DECLARE_CONFIG_KEY(CACHE_DIR);
 
 }  // namespace PluginConfigParams
 }  // namespace InferenceEngine

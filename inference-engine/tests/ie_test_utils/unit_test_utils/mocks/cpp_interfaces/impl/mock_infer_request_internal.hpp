@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -6,7 +6,6 @@
 
 #include <map>
 
-#include "ie_plugin.hpp"
 #include "ie_iexecutable_network.hpp"
 #include <gmock/gmock.h>
 #include <string>
@@ -22,5 +21,7 @@ public:
     using InferRequestInternal::SetBlob;
     using InferRequestInternal::GetBlob;
     MOCK_METHOD0(InferImpl, void());
-    MOCK_CONST_METHOD1(GetPerformanceCounts, void(std::map<std::string, InferenceEngineProfileInfo> &));
+    MOCK_CONST_METHOD0(GetPerformanceCounts, std::map<std::string, InferenceEngineProfileInfo>());
+    MOCK_METHOD0(checkBlobs, void());
+    MOCK_METHOD0(Cancel, void());
 };

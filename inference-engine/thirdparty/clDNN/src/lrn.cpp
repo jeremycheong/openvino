@@ -1,18 +1,6 @@
-/*
-// Copyright (c) 2016 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
 
 #include "lrn_inst.h"
 #include "primitive_type_base.h"
@@ -29,7 +17,17 @@ primitive_type_id lrn::type_id() {
 layout lrn_inst::calc_output_layout(lrn_node const& node) {
     assert(static_cast<bool>(node.get_primitive()->output_data_type) == false &&
            "Output data type forcing is not supported for lrn_node!");
-    return node.input().get_non_padded_output_layout();
+    auto input_layout = node.input().get_output_layout();
+    auto output_type = input_layout.data_type;
+
+    if (node.has_fused_primitives()) {
+        output_type = node.get_fused_output_layout().data_type;
+    }
+
+    auto result = node.input().get_non_padded_output_layout();
+    result.data_type = output_type;
+
+    return result;
 }
 
 std::string lrn_inst::to_string(lrn_node const& node) {

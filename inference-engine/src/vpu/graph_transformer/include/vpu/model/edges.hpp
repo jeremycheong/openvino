@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -9,11 +9,11 @@
 namespace vpu {
 
 //
-// StageInputEdge
+// Data -> Stage edges.
 //
 
 //
-// Data -> Stage edge.
+// StageInputEdge
 //
 
 class StageInputEdge final :
@@ -82,7 +82,7 @@ private:
 };
 
 //
-// SharedAllocationEdge
+// DataToDataAllocationEdge
 //
 
 //
@@ -126,7 +126,7 @@ VPU_DECLARE_ENUM(SharedConnectionMode,
     SINGLE_STAGE,
     SUBGRAPH)
 
-class SharedAllocationEdge final :
+class DataToDataAllocationEdge final :
         public EnableHandle,
         public EnableCustomAttributes {
     VPU_MODEL_ATTRIBUTE(Data, parent, nullptr)
@@ -137,12 +137,37 @@ class SharedAllocationEdge final :
     VPU_MODEL_ATTRIBUTE(SharedConnectionMode, connectionMode, SharedConnectionMode::SINGLE_STAGE);
 
 private:
-    SharedAllocationEdge() : _posInData(this) {}
+    DataToDataAllocationEdge() : _posInData(this) {}
 
 private:
     Model _model;
-    SharedAllocationPtrList::iterator _ptrPosInModel;
-    SharedAllocationListNode _posInData;
+    DataToDataAllocationPtrList::iterator _ptrPosInModel;
+    DataToDataAllocationListNode _posInData;
+
+    friend ModelObj;
+    friend DataNode;
+};
+
+//
+// DataToShapeAllocationEdge
+//
+
+//
+// Data <-> Shape of data edge - used to share data memory of one DataNode as shape for another DataNode
+//
+
+class DataToShapeAllocationEdge final :
+        public EnableHandle,
+        public EnableCustomAttributes {
+    VPU_MODEL_ATTRIBUTE(Data, parent, nullptr)
+    VPU_MODEL_ATTRIBUTE(Data, child, nullptr)
+
+private:
+    DataToShapeAllocationEdge() : _posInData(this) {}
+
+private:
+    DataToShapeAllocationPtrList::iterator _ptrPosInModel;
+    DataToShapeAllocationListNode _posInData;
 
     friend ModelObj;
     friend DataNode;
@@ -162,6 +187,7 @@ class InjectionEdge final :
     VPU_MODEL_ATTRIBUTE(Stage, parent, nullptr)
     VPU_MODEL_ATTRIBUTE(StagePtr, child, nullptr)
     VPU_MODEL_ATTRIBUTE(int, portInd, -1)
+    VPU_MODEL_ATTRIBUTE(StageDependencyVector, injectedStageDependencies, {})
 
 private:
     InjectionEdge() : _posInStage(this) {}
@@ -170,6 +196,27 @@ private:
     Model _model;
     InjectionPtrList::iterator _ptrPosInModel;
     InjectionListNode _posInStage;
+
+    friend ModelObj;
+    friend StageNode;
+};
+
+//
+// StageDependencyEdge defines that some stage should be executed before other
+//
+
+class StageDependencyEdge final :
+        public EnableHandle,
+        public EnableCustomAttributes {
+    VPU_MODEL_ATTRIBUTE(Stage, parent, nullptr)
+    VPU_MODEL_ATTRIBUTE(Stage, child, nullptr)
+
+private:
+    StageDependencyEdge() : _posInStage(this) {}
+
+private:
+    StageDependencyPtrList::iterator _ptrPosInModel;
+    StageDependencyListNode _posInStage;
 
     friend ModelObj;
     friend StageNode;

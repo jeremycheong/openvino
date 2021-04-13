@@ -1,18 +1,6 @@
-/*
-// Copyright (c) 2019 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
 
 #include "depth_to_space_inst.h"
 
@@ -46,14 +34,25 @@ layout depth_to_space_inst::calc_output_layout(depth_to_space_node const& node) 
             "The depth of the input tensor must be divisible by squared block size. Actual block size is " +
                 std::to_string(block_size));
 
-    const size_t feature = input_layout.size.feature[0] / block_size / block_size;
-    const size_t y = input_layout.size.spatial[1] * block_size;
-    const size_t x = input_layout.size.spatial[0] * block_size;
+    auto out_size = input_layout.size;
+    if (format::spatial_num(input_layout.format) == 3) {
+        const size_t feature = input_layout.size.feature[0] / block_size / block_size / block_size;
+        const size_t z = input_layout.size.spatial[2] * block_size;
+        const size_t y = input_layout.size.spatial[1] * block_size;
+        const size_t x = input_layout.size.spatial[0] * block_size;
+        out_size = tensor(TensorValue(input_layout.size.batch[0]), TensorValue(feature), TensorValue(x), TensorValue(y), TensorValue(z));
+    } else {
+        const size_t feature = input_layout.size.feature[0] / block_size / block_size;
+        const size_t y = input_layout.size.spatial[1] * block_size;
+        const size_t x = input_layout.size.spatial[0] * block_size;
+        out_size = tensor(TensorValue(input_layout.size.batch[0]), TensorValue(feature), TensorValue(x), TensorValue(y));
+    }
 
-    return layout{
-        input_layout.data_type,
-        input_format,
-        tensor(TensorValue(input_layout.size.batch[0]), TensorValue(feature), TensorValue(x), TensorValue(y))};
+    if (node.has_fused_primitives()) {
+        input_layout.data_type = node.get_fused_output_layout().data_type;
+    }
+
+    return layout{input_layout.data_type, input_format, out_size};
 }
 
 std::string depth_to_space_inst::to_string(depth_to_space_node const& node) {
@@ -66,6 +65,7 @@ std::string depth_to_space_inst::to_string(depth_to_space_node const& node) {
     json_composite depth_to_space_info;
     depth_to_space_info.add("input id", input.id());
     depth_to_space_info.add("block size", desc->block_size);
+    depth_to_space_info.add("mode", desc->mode == depth_to_space_mode::blocks_first ? "blocks_first" : "depth_first");
 
     node_info->add("depth_to_space info", depth_to_space_info);
     node_info->dump(primitive_description);

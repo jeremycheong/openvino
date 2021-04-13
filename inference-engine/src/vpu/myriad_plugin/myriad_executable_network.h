@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -28,21 +28,27 @@
 namespace vpu {
 namespace MyriadPlugin {
 
-class ExecutableNetwork : public InferenceEngine::ExecutableNetworkThreadSafeDefault {
+class ExecutableNetwork : public ie::ExecutableNetworkThreadSafeDefault {
 public:
     typedef std::shared_ptr<ExecutableNetwork> Ptr;
 
-    explicit ExecutableNetwork(InferenceEngine::ICNNNetwork &network,
+    explicit ExecutableNetwork(const ie::CNNNetwork& network,
+                               std::shared_ptr<IMvnc> mvnc,
                                std::vector<DevicePtr> &devicePool,
-                               const MyriadConfig& config);
+                               const MyriadConfig& config,
+                               const ie::ICore* core);
 
     explicit ExecutableNetwork(std::istream& strm,
+                               std::shared_ptr<IMvnc> mvnc,
                                std::vector<DevicePtr> &devicePool,
-                               const MyriadConfig& config);
+                               const MyriadConfig& config,
+                               const ie::ICore* core);
 
     explicit ExecutableNetwork(const std::string &blobFilename,
+                               std::shared_ptr<IMvnc> mvnc,
                                std::vector<DevicePtr> &devicePool,
-                               const MyriadConfig& config);
+                               const MyriadConfig& config,
+                               const ie::ICore* core);
 
 
     virtual ~ExecutableNetwork() {
@@ -55,10 +61,10 @@ public:
         }
     }
 
-    InferenceEngine::InferRequestInternal::Ptr CreateInferRequestImpl(InferenceEngine::InputsDataMap networkInputs,
-                                                                      InferenceEngine::OutputsDataMap networkOutputs) override {
+    ie::InferRequestInternal::Ptr CreateInferRequestImpl(ie::InputsDataMap networkInputs,
+                                                         ie::OutputsDataMap networkOutputs) override {
         if (_device == nullptr || !_device->isBooted()) {
-            THROW_IE_EXCEPTION << "Can not create infer request: there is no available devices with platform "
+            IE_THROW() << "Can not create infer request: there is no available devices with platform "
                                << _device->_platform;
         }
 
@@ -67,9 +73,10 @@ public:
                                                     _graphMetaData.stagesMeta, _config, _log, _executor);
     }
 
-    void CreateInferRequest(InferenceEngine::IInferRequest::Ptr &asyncRequest) override {
+    ie::IInferRequest::Ptr CreateInferRequest() override {
+        ie::IInferRequest::Ptr asyncRequest;
         if (_device == nullptr || !_device->isBooted()) {
-            THROW_IE_EXCEPTION << "Can not create infer request: there is no available devices with platform "
+            IE_THROW() << "Can not create infer request: there is no available devices with platform "
                                << _device->_platform;
         }
 
@@ -79,12 +86,11 @@ public:
                                                                     _executor);
         syncRequestImpl->setPointerToExecutableNetworkInternal(shared_from_this());
         auto taskExecutorGetResult = getNextTaskExecutor();
-        auto asyncTreadSafeImpl = std::make_shared<MyriadAsyncInferRequest>(
+        auto asyncThreadSafeImpl = std::make_shared<MyriadAsyncInferRequest>(
                 syncRequestImpl, _taskExecutor, _callbackExecutor, taskExecutorGetResult);
-        asyncRequest.reset(new InferenceEngine::InferRequestBase<InferenceEngine::AsyncInferRequestThreadSafeDefault>(
-                           asyncTreadSafeImpl),
-                           [](InferenceEngine::IInferRequest *p) { p->Release(); });
-        asyncTreadSafeImpl->SetPointerToPublicInterface(asyncRequest);
+        asyncRequest.reset(new ie::InferRequestBase(asyncThreadSafeImpl));
+        asyncThreadSafeImpl->SetPointerToPublicInterface(asyncRequest);
+        return asyncRequest;
     }
 
     void Export(std::ostream& model) override {
@@ -97,13 +103,13 @@ public:
         if (modelFile.is_open()) {
             Export(modelFile);
         } else {
-            THROW_IE_EXCEPTION << "The " << modelFileName << " file can not be opened for export";
+            IE_THROW() << "The " << modelFileName << " file can not be opened for export";
         }
     }
 
-    void GetMetric(const std::string &name, InferenceEngine::Parameter &result, InferenceEngine::ResponseDesc *resp) const override;
+    ie::Parameter GetMetric(const std::string &name) const override;
 
-    void GetExecGraphInfo(InferenceEngine::ICNNNetwork::Ptr &graphPtr) override;
+    ie::CNNNetwork GetExecGraphInfo() override;
 
     void Import(std::istream& strm,
                 std::vector<DevicePtr> &devicePool,
@@ -117,6 +123,7 @@ private:
     DevicePtr _device;
     GraphMetaInfo _graphMetaData;
     MyriadConfig _config;
+    const ie::ICore* _core = nullptr;
     int _actualNumExecutors = 0;
     std::vector<std::string> _supportedMetrics;
 
@@ -126,17 +133,19 @@ private:
     const size_t _maxTaskExecutorGetResultCount = 1;
     std::queue<std::string> _taskExecutorGetResultIds;
 
-    ExecutableNetwork(std::vector<DevicePtr> &devicePool,
-                      const MyriadConfig& config);
+    ExecutableNetwork(std::shared_ptr<IMvnc> mvnc,
+        std::vector<DevicePtr> &devicePool,
+        const MyriadConfig& config,
+        const ie::ICore* core);
 
-    InferenceEngine::ITaskExecutor::Ptr getNextTaskExecutor() {
+    ie::ITaskExecutor::Ptr getNextTaskExecutor() {
         std::string id = _taskExecutorGetResultIds.front();
 
         _taskExecutorGetResultIds.pop();
         _taskExecutorGetResultIds.push(id);
 
-        InferenceEngine::ExecutorManager *executorManager = InferenceEngine::ExecutorManager::getInstance();
-        InferenceEngine::ITaskExecutor::Ptr taskExecutor = executorManager->getExecutor(id);
+        ie::ExecutorManager *executorManager = ie::ExecutorManager::getInstance();
+        ie::ITaskExecutor::Ptr taskExecutor = executorManager->getExecutor(id);
 
         return taskExecutor;
     }

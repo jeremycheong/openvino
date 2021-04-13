@@ -1,18 +1,6 @@
-/*
-// Copyright (c) 2016-2019 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 #include "permute_inst.h"
@@ -44,6 +32,10 @@ layout permute_inst::calc_output_layout(permute_node const& node) {
 
     auto input_size = tensor(output_sizes);
     auto op = node.get_primitive()->output_padding;
+
+    if (node.has_fused_primitives()) {
+        input_layout.data_type = node.get_fused_output_layout().data_type;
+    }
 
     return layout(input_layout.data_type, input_layout.format, input_size, op);
 }

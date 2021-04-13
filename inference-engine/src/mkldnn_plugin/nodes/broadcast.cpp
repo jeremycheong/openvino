@@ -1,8 +1,7 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "list.hpp"
 #include "base.hpp"
 
 #include <cmath>
@@ -10,7 +9,7 @@
 #include <vector>
 #include <cassert>
 #include "ie_parallel.hpp"
-#include "common/simple_copy.h"
+#include "common/cpu_memcpy.h"
 
 namespace InferenceEngine {
 namespace Extensions {
@@ -21,18 +20,18 @@ public:
     explicit BroadcastImpl(const CNNLayer* layer) {
         try {
             if (layer->insData.empty() || layer->outData.empty())
-                THROW_IE_EXCEPTION << layer->name << " Incorrect number of input/output edges!";
+                IE_THROW() << layer->name << " Incorrect number of input/output edges!";
 
             if (layer->insData.size() != 2)
-                THROW_IE_EXCEPTION << layer->name << " Incorrect number of input edges!";
+                IE_THROW() << layer->name << " Incorrect number of input edges!";
 
             SizeVector shape_dims = layer->insData[BROADCAST_SHAPE].lock()->getTensorDesc().getDims();
             if (shape_dims.size() > 1)
-                THROW_IE_EXCEPTION << layer->name << " Shape vector should be 1 dimension";
+                IE_THROW() << layer->name << " Shape vector should be 1 dimension";
 
             LayerConfig config;
             DataConfig dataConfig, shapeConfig;
-            Precision dataPrecision = layer->outData[0]->getTensorDesc().getPrecision();
+            Precision dataPrecision = layer->insData[BROADCAST_INPUT].lock()->getTensorDesc().getPrecision();
             const SizeVector& data_dims = layer->insData[BROADCAST_INPUT].lock()->getTensorDesc().getDims();
             dataConfig.desc = TensorDesc(dataPrecision, data_dims,
                                          layer->insData[BROADCAST_INPUT].lock()->getTensorDesc().getLayout());
@@ -47,7 +46,7 @@ public:
             config.outConfs.push_back(outConfig);
             config.dynBatchSupport = false;
             confs.push_back(config);
-        } catch (InferenceEngine::details::InferenceEngineException &ex) {
+        } catch (InferenceEngine::Exception &ex) {
             errorMsg = ex.what();
         }
     }
@@ -112,7 +111,7 @@ public:
                 for (i = 0, src_idx = 0; i < dst_dims.size(); ++i)
                     src_idx += counters[i] ? ((counters[i] % src_aligned[i]) * srcStrides_aligned[i]) : 0;
 
-                simple_copy(&dst_data[iwork], data_size, &src_data[src_idx * data_size], data_size);
+                cpu_memcpy(&dst_data[iwork], &src_data[src_idx * data_size], data_size);
 
                 for (int j = dst_dims.size() - 1; j >= 0; j--) {
                     counters[j] = (counters[j] + 1) % dst_dims[j];
@@ -129,7 +128,7 @@ private:
     const size_t BROADCAST_SHAPE = 1;
 };
 
-REG_FACTORY_FOR(ImplFactory<BroadcastImpl>, Broadcast);
+REG_FACTORY_FOR(BroadcastImpl, Broadcast);
 
 }  // namespace Cpu
 }  // namespace Extensions

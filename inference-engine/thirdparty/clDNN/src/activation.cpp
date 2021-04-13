@@ -1,18 +1,6 @@
-/*
-// Copyright (c) 2016 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
 
 #include "activation_inst.h"
 #include "primitive_type_base.h"
@@ -44,6 +32,10 @@ layout activation_inst::calc_output_layout(activation_node const& node) {
     if (input_node_layout.data_type == data_types::i8 || input_node_layout.data_type == data_types::i32) {
         if (std::find(activations_int8.begin(), activations_int8.end(), func) == activations_int8.end())
             CLDNN_ERROR_MESSAGE(node.id(), "Requested activation is not supported for integer type.");
+    }
+
+    if (node.has_fused_primitives()) {
+        input_node_layout.data_type = node.get_fused_output_layout().data_type;
     }
 
     return input_node_layout;

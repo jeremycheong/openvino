@@ -1,12 +1,13 @@
-// Copyright (C) 2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
+#include <cmath>
 #include <gna/gna_config.hpp>
 #include "gna_plugin.hpp"
 #include "gna_plugin_config.hpp"
 #include "ie_common.h"
-#include <details/caseless.hpp>
+#include <caseless.hpp>
 #include <unordered_map>
 
 using namespace InferenceEngine;
@@ -15,13 +16,13 @@ using namespace InferenceEngine::details;
 namespace GNAPluginNS {
 
 #if GNA_LIB_VER == 1
-static caseless_unordered_map<std::string, uint32_t> supported_values = {
+static const caseless_unordered_map<std::string, uint32_t> supported_values = {
         {GNAConfigParams::GNA_AUTO,     GNA_AUTO},
         {GNAConfigParams::GNA_HW,       GNA_HARDWARE},
         {GNAConfigParams::GNA_SW,       GNA_SOFTWARE},
         {GNAConfigParams::GNA_SW_EXACT, GNA_SOFTWARE & GNA_HARDWARE}
 };
-static std::vector<std::string> supported_values_on_gna2 = {
+static const  std::vector<std::string> supported_values_on_gna2 = {
         GNAConfigParams::GNA_GEN,
         GNAConfigParams::GNA_GEN_EXACT,
         GNAConfigParams::GNA_SSE,
@@ -32,7 +33,7 @@ static std::vector<std::string> supported_values_on_gna2 = {
         GNAConfigParams::GNA_AVX2_EXACT
 };
 #else
-static caseless_unordered_map <std::string, std::pair<Gna2AccelerationMode, Gna2DeviceVersion>> supported_values = {
+static const caseless_unordered_map <std::string, std::pair<Gna2AccelerationMode, Gna2DeviceVersion>> supported_values = {
                 {GNAConfigParams::GNA_AUTO,       {Gna2AccelerationModeAuto,     Gna2DeviceVersionSoftwareEmulation}},
                 {GNAConfigParams::GNA_HW,         {Gna2AccelerationModeHardware, Gna2DeviceVersionSoftwareEmulation}},
                 {GNAConfigParams::GNA_SW,         {Gna2AccelerationModeSoftware, Gna2DeviceVersionSoftwareEmulation}},
@@ -71,13 +72,13 @@ void Config::UpdateFromMap(const std::map<std::string, std::string>& config) {
                 key.erase(0, 1);
                 try {
                     input_index = std::stoi(key);
-                    if (input_index < 0 | input_index > 9) {
+                    if (input_index > 99) {
                         throw std::out_of_range("");
                     }
                 } catch (std::invalid_argument&) {
                     THROW_GNA_EXCEPTION << "Invalid value of index of input scale factor";
                 } catch (std::out_of_range&) {
-                    THROW_GNA_EXCEPTION << "Index of input scale factor must be in the range [0..9], " << value << " provided";
+                    THROW_GNA_EXCEPTION << "Index of input scale factor must be in the range [0..99], " << key << " provided";
                 }
             }
             auto scale_factor = InferenceEngine::CNNLayer::ie_parse_float(value);
@@ -155,6 +156,24 @@ void Config::UpdateFromMap(const std::map<std::string, std::string>& config) {
                 THROW_GNA_EXCEPTION << "GNA pwl uniform algorithm parameter "
                                     << "should be equal to YES/NO, but not" << value;
             }
+        } else if (key == GNA_CONFIG_KEY(PWL_MAX_ERROR_PERCENT)) {
+            float max_error;
+            try {
+                max_error = InferenceEngine::CNNLayer::ie_parse_float(value);
+                if (max_error < 0.0f || max_error > 100.0f) {
+                    throw std::out_of_range("");
+                }
+            }
+            catch (std::invalid_argument&) {
+                THROW_GNA_EXCEPTION << "Invalid value of PWL max error percent";
+            }
+            catch (std::out_of_range&) {
+                log << "Unsupported PWL error percent value: " << value
+                    << ", should be greater than 0 and less than 100";
+                THROW_GNA_EXCEPTION << "Unsupported PWL error percent value: " << value
+                    << ", should be greater than 0 and less than 100";
+            }
+            gnaFlags.pwlMaxErrorPercent = max_error;
         } else if (key == CONFIG_KEY(PERF_COUNT)) {
             if (value == PluginConfigParams::YES) {
                 gnaFlags.performance_counting = true;
@@ -192,8 +211,9 @@ void Config::UpdateFromMap(const std::map<std::string, std::string>& config) {
                 THROW_GNA_EXCEPTION << "EXCLUSIVE_ASYNC_REQUESTS should be YES/NO, but not" << value;
             }
         } else {
-            THROW_GNA_EXCEPTION << as_status << NOT_FOUND << "Incorrect GNA Plugin config. Key " << item.first
-                                << " not supported";
+            IE_THROW(NotFound)
+                << "[GNAPlugin] in function " << __PRETTY_FUNCTION__<< ": "
+                << "Incorrect GNA Plugin config. Key " << item.first << " not supported";
         }
 
         if (gnaFlags.sw_fp32 && gnaFlags.gna_lib_async_threads_num > 1) {
@@ -209,18 +229,19 @@ void Config::UpdateFromMap(const std::map<std::string, std::string>& config) {
 }
 
 void Config::AdjustKeyMapValues() {
-    key_config_map.clear();
+    std::lock_guard<std::mutex> lockGuard{ mtx4keyConfigMap };
+    keyConfigMap.clear();
 
     if (inputScaleFactors.empty()) {
         inputScaleFactors.push_back(1.0);
     }
-    key_config_map[GNA_CONFIG_KEY(SCALE_FACTOR)] = std::to_string(inputScaleFactors[0]);
+    keyConfigMap[GNA_CONFIG_KEY(SCALE_FACTOR)] = std::to_string(inputScaleFactors[0]);
     for (int n = 0; n < inputScaleFactors.size(); n++) {
-        key_config_map[GNA_CONFIG_KEY(SCALE_FACTOR) + std::string("_") + std::to_string(n)] =
+        keyConfigMap[GNA_CONFIG_KEY(SCALE_FACTOR) + std::string("_") + std::to_string(n)] =
                 std::to_string(inputScaleFactors[n]);
     }
-    key_config_map[GNA_CONFIG_KEY(FIRMWARE_MODEL_IMAGE)] = dumpXNNPath;
-    key_config_map[GNA_CONFIG_KEY(FIRMWARE_MODEL_IMAGE_GENERATION)] = dumpXNNGeneration;
+    keyConfigMap[GNA_CONFIG_KEY(FIRMWARE_MODEL_IMAGE)] = dumpXNNPath;
+    keyConfigMap[GNA_CONFIG_KEY(FIRMWARE_MODEL_IMAGE_GENERATION)] = dumpXNNGeneration;
 
     std::string device_mode;
     if (gnaFlags.sw_fp32) {
@@ -242,34 +263,35 @@ void Config::AdjustKeyMapValues() {
         }
     }
     IE_ASSERT(!device_mode.empty());
-    key_config_map[GNA_CONFIG_KEY(DEVICE_MODE)] = device_mode;
-    key_config_map[GNA_CONFIG_KEY(COMPACT_MODE)] =
+    keyConfigMap[GNA_CONFIG_KEY(DEVICE_MODE)] = device_mode;
+    keyConfigMap[GNA_CONFIG_KEY(COMPACT_MODE)] =
             gnaFlags.compact_mode ? PluginConfigParams::YES: PluginConfigParams::NO;
-    key_config_map[CONFIG_KEY(EXCLUSIVE_ASYNC_REQUESTS)] =
+    keyConfigMap[CONFIG_KEY(EXCLUSIVE_ASYNC_REQUESTS)] =
             gnaFlags.exclusive_async_requests ? PluginConfigParams::YES: PluginConfigParams::NO;
-    key_config_map[GNA_CONFIG_KEY(PRECISION)] = gnaPrecision.name();
-    key_config_map[CONFIG_KEY(EXCLUSIVE_ASYNC_REQUESTS)] =
-            gnaFlags.exclusive_async_requests ? PluginConfigParams::YES: PluginConfigParams::NO;
-    key_config_map[GNA_CONFIG_KEY(PWL_UNIFORM_DESIGN)] =
+    keyConfigMap[GNA_CONFIG_KEY(PRECISION)] = gnaPrecision.name();
+    keyConfigMap[GNA_CONFIG_KEY(PWL_UNIFORM_DESIGN)] =
             gnaFlags.uniformPwlDesign ? PluginConfigParams::YES: PluginConfigParams::NO;
-    key_config_map[CONFIG_KEY(PERF_COUNT)] =
+    keyConfigMap[GNA_CONFIG_KEY(PWL_MAX_ERROR_PERCENT)] = std::to_string(gnaFlags.pwlMaxErrorPercent);
+    keyConfigMap[CONFIG_KEY(PERF_COUNT)] =
             gnaFlags.performance_counting ? PluginConfigParams::YES: PluginConfigParams::NO;
-    key_config_map[GNA_CONFIG_KEY(LIB_N_THREADS)] = std::to_string(gnaFlags.gna_lib_async_threads_num);
-    key_config_map[CONFIG_KEY(SINGLE_THREAD)] =
+    keyConfigMap[GNA_CONFIG_KEY(LIB_N_THREADS)] = std::to_string(gnaFlags.gna_lib_async_threads_num);
+    keyConfigMap[CONFIG_KEY(SINGLE_THREAD)] =
             gnaFlags.gna_openmp_multithreading ? PluginConfigParams::NO: PluginConfigParams::YES;
 }
 
 std::string Config::GetParameter(const std::string& name) const {
-    auto result = key_config_map.find(name);
-    if (result == key_config_map.end()) {
+    std::lock_guard<std::mutex> lockGuard{ mtx4keyConfigMap };
+    auto result = keyConfigMap.find(name);
+    if (result == keyConfigMap.end()) {
         THROW_GNA_EXCEPTION << "Unsupported config key: " << name;
     }
     return result->second;
 }
 
 std::vector<std::string> Config::GetSupportedKeys() const {
+    std::lock_guard<std::mutex> lockGuard{ mtx4keyConfigMap };
     std::vector<std::string> result;
-    for (auto&& configOption : key_config_map) {
+    for (auto&& configOption : keyConfigMap) {
         result.push_back(configOption.first);
     }
     return result;

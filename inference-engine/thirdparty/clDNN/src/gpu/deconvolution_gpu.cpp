@@ -1,18 +1,6 @@
-/*
-// Copyright (c) 2016-2019 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
 
 #include "deconvolution_inst.h"
 #include "primitive_gpu_base.h"
@@ -32,7 +20,7 @@ struct deconvolution_gpu : typed_primitive_gpu_impl<deconvolution> {
 
 protected:
     // TODO: share it with convolution and fully connected
-    bool validate_impl(const typed_primitive_inst<deconvolution>& instance) const override {
+    bool validate_impl(const typed_primitive_inst<deconvolution>&) const override {
         bool res = true;
 
         CLDNN_ERROR_NOT_EQUAL(_outer.id(),
@@ -41,23 +29,6 @@ protected:
                               "padding mode",
                               0.0f,
                               "Unknown padding mode in deconvolution.");
-        // Check whether all memory elements use the same unit type (FP16 or FP32).
-        auto input_count = instance.inputs_memory_count();
-        auto input_data_type = 0 == input_count ?
-            instance.node.input().get_output_layout().data_type :
-            instance.input_memory().get_layout().data_type;
-        CLDNN_ERROR_DATA_TYPES_MISMATCH(_outer.id(),
-                                        "Input memory",
-                                        input_data_type,
-                                        "output memory",
-                                        instance.output_memory().get_layout().data_type,
-                                        "");
-        CLDNN_ERROR_DATA_TYPES_MISMATCH(_outer.id(),
-                                        "Input memory",
-                                        input_data_type,
-                                        "filter memory",
-                                        instance.weights_memory(0).get_layout().data_type,
-                                        "");
 
         return res;
     }
@@ -65,14 +36,9 @@ protected:
     kernel::kernel_arguments_data get_arguments(typed_primitive_inst<deconvolution>& instance,
                                                         int32_t split) const override {
         kernel::kernel_arguments_data args = parent::get_arguments(instance, split);
-        auto* desc = static_cast<const deconvolution*>(instance.desc().get());
-        int dep_size = static_cast<int>((desc->weights.size() + desc->bias.size() + 1));
 
         args.weights = (memory_impl::cptr) &instance.weights_memory(split);
         args.bias = (memory_impl::cptr) (instance.bias_term() ? &instance.bias_memory(split) : nullptr);
-
-        if (static_cast<int>(instance.dependencies().size()) > dep_size)
-            args.inputs.emplace_back(&instance.dep_memory(dep_size));
 
         return args;
     }
@@ -85,27 +51,6 @@ public:
     static primitive_impl* create(const deconvolution_node& arg) {
         const auto& primitive = arg.get_primitive();
         const auto& weights_layout = arg.weights(0).get_output_layout();
-
-        switch (weights_layout.fused_format()) {
-                // FP32 (float)
-            case fuse(data_types::f32, format::goiyx):
-            case fuse(data_types::f32, format::yxio):
-            case fuse(data_types::f32, format::gyxio):
-            case fuse(data_types::f32, format::goizyx):
-            case fuse(data_types::f16, format::goiyx):
-            case fuse(data_types::f16, format::yxio):
-            case fuse(data_types::f16, format::gyxio):
-            case fuse(data_types::f16, format::goizyx):
-            case fuse(data_types::f32, format::oiyx):
-            case fuse(data_types::f32, format::yxfb):
-            case fuse(data_types::f32, format::oizyx):
-            case fuse(data_types::f16, format::oiyx):
-            case fuse(data_types::f16, format::yxfb):
-            case fuse(data_types::f16, format::oizyx):
-                break;
-            default:
-                throw std::runtime_error("deconvolution weights format unsupported");
-        }
 
         const auto& weights_size = weights_layout.size;
 
@@ -124,15 +69,19 @@ public:
         auto deconv_params = get_weights_bias_default_params<kernel_selector::deconvolution_params>(
             arg,
             (groups > 1) ? 1 : actual_split,
-            1);
+            1,
+            primitive->grouped_weights_shape);
         auto deconv_optional_params =
             get_default_weights_bias_optional_params<kernel_selector::deconvolution_optional_params>(arg.get_program());
 
         deconv_params.split = split;
         deconv_params.groups = groups;
-        deconv_params.filterSize = {(uint32_t)weights_size.spatial[0],
-                                    (uint32_t)weights_size.spatial[1],
-                                    (uint32_t)weights_size.spatial[2]};
+
+        auto spatial_size = arg.get_output_layout().format.dimension() - 2;
+        uint32_t kx = weights_size.spatial[0];
+        uint32_t ky = weights_size.spatial[1];
+        uint32_t kz = spatial_size == 2 ? 1 : weights_size.spatial[2];
+        deconv_params.filterSize = { kx, ky, kz };
 
         deconv_params.padding = {(uint32_t)std::max(-input_offset.spatial[0], 0),
                                  (uint32_t)std::max(-input_offset.spatial[1], 0),
@@ -143,13 +92,6 @@ public:
         deconv_params.dilation = {(uint32_t)dilation.spatial[0],
                                   (uint32_t)dilation.spatial[1],
                                   (uint32_t)dilation.spatial[2]};
-
-        deconv_params.gradient = primitive->gradient();
-
-        if (arg.get_dependencies().size() > primitive->weights.size() + primitive->bias.size() + 1) {
-            deconv_params.fused_eltwise = true;
-            deconv_params.inputs.push_back(convert_data_tensor(arg.fused_sum().get_output_layout()));
-        }
 
         auto& kernel_selector = kernel_selector::deconvolution_kernel_selector::Instance();
         auto best_kernels = kernel_selector.GetBestKernels(deconv_params, deconv_optional_params);
@@ -179,6 +121,8 @@ attach_deconvolution_gpu::attach_deconvolution_gpu() {
                                            deconvolution_gpu::create);
     implementation_map<deconvolution>::add(std::make_tuple(engine_types::ocl, data_types::f32, format::b_fs_yx_fsv16),
                                            deconvolution_gpu::create);
+    implementation_map<deconvolution>::add(std::make_tuple(engine_types::ocl, data_types::f32, format::bs_fs_yx_bsv16_fsv16),
+                                           deconvolution_gpu::create);
     implementation_map<deconvolution>::add(std::make_tuple(engine_types::ocl, data_types::f16, format::yxfb),
                                            deconvolution_gpu::create);
     implementation_map<deconvolution>::add(std::make_tuple(engine_types::ocl, data_types::f16, format::bfyx),
@@ -194,6 +138,30 @@ attach_deconvolution_gpu::attach_deconvolution_gpu() {
     implementation_map<deconvolution>::add(std::make_tuple(engine_types::ocl, data_types::f32, format::byxf),
                                            deconvolution_gpu::create);
     implementation_map<deconvolution>::add(std::make_tuple(engine_types::ocl, data_types::f16, format::byxf),
+                                           deconvolution_gpu::create);
+    implementation_map<deconvolution>::add(std::make_tuple(engine_types::ocl, data_types::i8, format::bfyx),
+                                           deconvolution_gpu::create);
+    implementation_map<deconvolution>::add(std::make_tuple(engine_types::ocl, data_types::u8, format::bfyx),
+                                           deconvolution_gpu::create);
+    implementation_map<deconvolution>::add(std::make_tuple(engine_types::ocl, data_types::i8, format::bfzyx),
+                                           deconvolution_gpu::create);
+    implementation_map<deconvolution>::add(std::make_tuple(engine_types::ocl, data_types::u8, format::bfzyx),
+                                           deconvolution_gpu::create);
+    implementation_map<deconvolution>::add(std::make_tuple(engine_types::ocl, data_types::i8, format::b_fs_yx_fsv16),
+                                           deconvolution_gpu::create);
+    implementation_map<deconvolution>::add(std::make_tuple(engine_types::ocl, data_types::u8, format::b_fs_yx_fsv16),
+                                           deconvolution_gpu::create);
+    implementation_map<deconvolution>::add(std::make_tuple(engine_types::ocl, data_types::i8, format::b_fs_zyx_fsv16),
+                                           deconvolution_gpu::create);
+    implementation_map<deconvolution>::add(std::make_tuple(engine_types::ocl, data_types::u8, format::b_fs_zyx_fsv16),
+                                           deconvolution_gpu::create);
+    implementation_map<deconvolution>::add(std::make_tuple(engine_types::ocl, data_types::i8, format::bs_fs_yx_bsv16_fsv16),
+                                           deconvolution_gpu::create);
+    implementation_map<deconvolution>::add(std::make_tuple(engine_types::ocl, data_types::u8, format::bs_fs_yx_bsv16_fsv16),
+                                           deconvolution_gpu::create);
+    implementation_map<deconvolution>::add(std::make_tuple(engine_types::ocl, data_types::i8, format::bs_fs_zyx_bsv16_fsv16),
+                                           deconvolution_gpu::create);
+    implementation_map<deconvolution>::add(std::make_tuple(engine_types::ocl, data_types::u8, format::bs_fs_zyx_bsv16_fsv16),
                                            deconvolution_gpu::create);
 }
 

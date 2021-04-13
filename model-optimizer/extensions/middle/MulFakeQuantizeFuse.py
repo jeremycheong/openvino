@@ -1,18 +1,6 @@
-"""
- Copyright (C) 2018-2020 Intel Corporation
+# Copyright (C) 2018-2021 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
-      http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
-"""
 import logging as log
 from collections import defaultdict
 from typing import Dict, List
@@ -20,7 +8,7 @@ from typing import Dict, List
 import numpy as np
 
 from mo.graph.graph import Graph, Node
-from mo.middle.passes.conv import get_tensor_in_port, get_value_in_port
+from mo.middle.passes.fusing.helpers import get_tensor_in_port, get_value_in_port
 from mo.middle.replacement import MiddleReplacementPattern
 from mo.ops.const import Const
 
@@ -41,7 +29,8 @@ def resolve_shared_inputs(node: Node, port_ids_to_duplicate: List[int]):
         if value is None:
             log.debug('Can not duplicate due no data for in_port {} of node {}'.format(port_id, node.name))
         for node, idxs in dst_port_map.items():
-            const = Const(graph, {'value': np.array(value)}).create_node()
+            const = Const(graph, {'value': np.array(value),
+                                  'name': node.soft_get('name', node.id) + '/duplicated_'}).create_node()
             for idx in idxs:
                 node.in_port(idx).disconnect()
                 const.out_port(0).connect(node.in_port(idx))
@@ -64,7 +53,7 @@ class MulFakeQuantizeFuse(MiddleReplacementPattern):
             nodes=[
                 ('preop', dict(op='Mul', can_be_fused=True)),
                 ('preoped', dict()),
-                ('quantize', dict(op='FakeQuantize', keep_in_IR=True)),
+                ('quantize', dict(op='FakeQuantize')),
             ],
             edges=[
                 ('preop', 'preoped'),

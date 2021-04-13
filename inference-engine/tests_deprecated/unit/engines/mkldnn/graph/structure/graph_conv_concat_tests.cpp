@@ -1,17 +1,14 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
-
-#include <gtest/gtest.h>
-#include "mkldnn_graph.h"
 
 #include "test_graph.hpp"
 
 #include "single_layer_common.hpp"
-#include <mkldnn_extension_utils.h>
 #include "tests_common.hpp"
 #include "ir_gen_helper.hpp"
-#include <cpp/ie_cnn_net_reader.h>
+#include <ie_core.hpp>
+#include <legacy/details/ie_cnn_network_iterator.hpp>
 
 using namespace ::testing;
 using namespace std;
@@ -149,9 +146,6 @@ protected:
             conv_concat_params p = ::testing::WithParamInterface<conv_concat_params>::GetParam();
             std::string model = getModel(p);
 
-            InferenceEngine::CNNNetReader net_reader;
-            ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
-
             size_t blob_size = p.conv.out_c * p.in[1] / p.conv.group;
             for (size_t i = 0; i < p.conv.kernel.size(); i++) {
                 blob_size *= p.conv.kernel[i];
@@ -181,9 +175,11 @@ protected:
                 memcpy(model_blob_ptr, blb->buffer().as<uint8_t*>(), blb->byteSize());
                 model_blob_ptr += blb->byteSize();
             }
-            net_reader.SetWeights(model_blob);
+            
+            InferenceEngine::Core core;
+            InferenceEngine::CNNNetwork network;
+            ASSERT_NO_THROW(network = core.ReadNetwork(model, model_blob));
 
-            auto network = net_reader.getNetwork();
             MKLDNNGraphTestClass graph;
             graph.CreateGraph(network);
 
@@ -215,8 +211,9 @@ protected:
 
             graph.Infer(srcs, outputBlobs);
 
-            for (auto& layer : network) {
-                layer->params["PrimitivesPriority"] = "cpu:ref,cpu:ref_any";
+            details::CNNNetworkIterator l(network), end;
+            for ( ; l != end; ++l) {
+                (*l)->params["PrimitivesPriority"] = "cpu:ref,cpu:ref_any";
             }
             MKLDNNGraphTestClass graph2;
             graph2.CreateGraph(network);
@@ -231,7 +228,7 @@ protected:
             graph.Infer(srcs, outputBlobs2);
 
             compare(*output, *output2, 0.0005f);
-        } catch (const InferenceEngine::details::InferenceEngineException &e) {
+        } catch (const InferenceEngine::Exception &e) {
             FAIL() << e.what();
         }
     }

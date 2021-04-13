@@ -1,23 +1,15 @@
-"""
- Copyright (C) 2018-2020 Intel Corporation
-
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
-      http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
-"""
+# Copyright (C) 2018-2021 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 
 import numpy as np
 
 from mo.graph.graph import Node
 from mo.utils.error import Error
+
+
+def onnx_node_has_attr(node: Node, name: str):
+    attrs = [a for a in node.pb.attribute if a.name == name]
+    return len(attrs) != 0
 
 
 def onnx_attr(node: Node, name: str, field: str, default=None, dst_type=None):
@@ -55,6 +47,10 @@ def get_onnx_autopad(auto_pad):
     if auto_pad == 'notset':
         auto_pad = None
     return auto_pad
+
+
+def get_onnx_opset_version(node: Node):
+    return node.graph.graph.get('fw_opset_version', 0)
 
 
 def get_onnx_datatype_as_numpy(value):

@@ -1,3 +1,7 @@
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
+//
+
 #pragma once
 
 #include "../../common/utils.h"
@@ -8,7 +12,6 @@
 // tests_pipelines/tests_pipelines.cpp
 void test_load_unload_plugin(const std::string &model, const std::string &target_device, const int &n);
 void test_read_network(const std::string &model, const std::string &target_device, const int &n);
-void test_create_cnnnetwork(const std::string &model, const std::string &target_device, const int &n);
 void test_cnnnetwork_reshape_batch_x2(const std::string &model, const std::string &target_device, const int &n);
 void test_set_input_params(const std::string &model, const std::string &target_device, const int &n);
 void test_create_exenetwork(const std::string &model, const std::string &target_device, const int &n);
@@ -19,7 +22,6 @@ void test_infer_request_inference(const std::string &model, const std::string &t
 // tests_pipelines/tests_pipelines_full_pipeline.cpp
 void test_load_unload_plugin_full_pipeline(const std::string &model, const std::string &target_device, const int &n);
 void test_read_network_full_pipeline(const std::string &model, const std::string &target_device, const int &n);
-void test_create_cnnnetwork_full_pipeline(const std::string &model, const std::string &target_device, const int &n);
 void test_set_input_params_full_pipeline(const std::string &model, const std::string &target_device, const int &n);
 void test_cnnnetwork_reshape_batch_x2_full_pipeline(const std::string &model, const std::string &target_device, const int &n);
 void test_create_exenetwork_full_pipeline(const std::string &model, const std::string &target_device, const int &n);

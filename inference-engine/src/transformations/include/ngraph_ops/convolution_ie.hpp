@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -8,7 +8,7 @@
 #include <vector>
 #include <algorithm>
 
-#include <ie_api.h>
+#include <transformations_visibility.hpp>
 
 #include "ngraph/coordinate_diff.hpp"
 #include "ngraph/op/op.hpp"
@@ -16,7 +16,7 @@
 namespace ngraph {
 namespace op {
 
-class INFERENCE_ENGINE_API_CLASS(ConvolutionIE) : public Op {
+class TRANSFORMATIONS_API ConvolutionIE : public Op {
 public:
     static constexpr NodeTypeInfo type_info{"ConvolutionIE", 1};
     const NodeTypeInfo& get_type_info() const override { return type_info; }
@@ -44,10 +44,10 @@ public:
     ConvolutionIE(const Output<Node>& data_batch,
                   const Output<Node>& filters,
                   const Strides& strides,
+                  const Strides& dilations,
                   const CoordinateDiff& pads_begin,
                   const CoordinateDiff& pads_end,
-                  const Strides& dilations,
-                  const Shape& output_shape,
+                  const element::Type output_type,
                   const size_t& group = 1,
                   const PadType& auto_pad = PadType::EXPLICIT);
 
@@ -55,18 +55,40 @@ public:
                   const Output<Node>& filters,
                   const Output<Node>& bias,
                   const Strides& strides,
+                  const Strides& dilations,
                   const CoordinateDiff& pads_begin,
                   const CoordinateDiff& pads_end,
-                  const Strides& dilations,
-                  const Shape& output_shape,
+                  const element::Type output_type,
                   const size_t& group = 1,
                   const PadType& auto_pad = PadType::EXPLICIT);
 
+    // KMB compilation support
+    ConvolutionIE(const Output<Node>& data_batch,
+                  const Output<Node>& filters,
+                  const Strides& strides,
+                  const Strides& dilations,
+                  const CoordinateDiff& pads_begin,
+                  const CoordinateDiff& pads_end,
+                  const size_t& group = 1,
+                  const PadType& auto_pad = PadType::EXPLICIT);
+
+    // KMB compilation support
+    ConvolutionIE(const Output<Node>& data_batch,
+                  const Output<Node>& filters,
+                  const Output<Node>& bias,
+                  const Strides& strides,
+                  const Strides& dilations,
+                  const CoordinateDiff& pads_begin,
+                  const CoordinateDiff& pads_end,
+                  const size_t& group = 1,
+                  const PadType& auto_pad = PadType::EXPLICIT);
+
+
     void validate_and_infer_types() override;
 
-    std::shared_ptr<Node> copy_with_new_args(const NodeVector& new_args) const override;
+    bool visit_attributes(AttributeVisitor& visitor) override;
 
-    std::shared_ptr<Node> copy(const OutputVector & new_args) const;
+    std::shared_ptr<Node> clone_with_new_inputs(const OutputVector & new_args) const override;
 
     /// \return The strides.
     const Strides& get_strides() const { return m_strides; }
@@ -86,9 +108,6 @@ public:
     /// \return The groups for convolution.
     const size_t& get_group() const { return m_group; }
     void set_group(const size_t & group) { m_group = group; }
-    /// \return The groups for convolution.
-    const Shape& get_output_shape() const { return m_output_shape; }
-    void set_output_shape(const Shape & output_shape) { m_output_shape = output_shape; }
 
 protected:
     Strides m_strides;
@@ -97,7 +116,7 @@ protected:
     CoordinateDiff m_pads_end;
     PadType m_auto_pad;
     size_t m_group;
-    Shape m_output_shape;
+    element::Type m_output_type;
 };
 
 }  // namespace op

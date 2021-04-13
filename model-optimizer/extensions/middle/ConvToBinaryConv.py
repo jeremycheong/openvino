@@ -1,27 +1,14 @@
-"""
- Copyright (C) 2018-2020 Intel Corporation
-
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
-      http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
-"""
+# Copyright (C) 2018-2021 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 
 import logging as log
 
 import numpy as np
 
 from extensions.ops.elementwise import Mul, Add
+from mo.front.tf.graph_utils import create_op_node_with_second_input
 from mo.graph.graph import Graph
 from mo.middle.replacement import MiddleReplacementPattern
-from mo.ops.const import Const
 
 
 class ConvToBinaryConv(MiddleReplacementPattern):
@@ -91,12 +78,10 @@ class ConvToBinaryConv(MiddleReplacementPattern):
             weights_reduced = np.add.reduce(weights, axis=tuple(reduction_indices))
             weights_reduced = weights_reduced.reshape([len(weights_reduced), 1, 1])  # FIXME: works for NCHW only
 
-            add_term = Const(graph, {'value': weights_reduced}).create_node()
-            add = Add(graph, {}).create_node()
-            add.in_port(1).connect(add_term.out_port(0))
-            mul_term = Const(graph, {'value': np.array(0.5)}).create_node()
-            mul = Mul(graph, {}).create_node()
-            mul.in_port(1).connect(mul_term.out_port(0))
+            operator_name = operator.soft_get('name', operator.id)
+            add = create_op_node_with_second_input(graph, Add, weights_reduced, {'name': operator_name + '/Add_'})
+            mul = create_op_node_with_second_input(graph, Mul, np.array(0.5), {'name': operator_name + '/Mul_'})
+
             add.out_port(0).connect(mul.in_port(0))
 
             operator.out_port(0).get_connection().set_source(mul.out_port(0))

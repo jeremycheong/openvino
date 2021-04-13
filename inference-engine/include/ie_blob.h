@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -19,16 +19,16 @@
 #include <utility>
 #include <vector>
 
-#include "details/ie_blob_iterator.hpp"
-#include "details/ie_exception.hpp"
-#include "details/ie_pre_allocator.hpp"
 #include "ie_allocator.hpp"
 #include "ie_common.h"
 #include "ie_layouts.h"
 #include "ie_locked_memory.hpp"
 #include "ie_precision.hpp"
+#include "details/ie_blob_iterator.hpp"
+#include "details/ie_pre_allocator.hpp"
 
 namespace InferenceEngine {
+
 /**
  * @brief This class represents a universal container in the Inference Engine
  *
@@ -124,6 +124,7 @@ public:
 
     /**
      * @brief Returns the tensor description
+     * @return A const reference to a tensor descriptor
      */
     virtual const TensorDesc& getTensorDesc() const noexcept {
         return tensorDesc;
@@ -131,6 +132,7 @@ public:
 
     /**
      * @brief Returns the tensor description
+     * @return A reference to a tensor descriptor
      */
     virtual TensorDesc& getTensorDesc() noexcept {
         return tensorDesc;
@@ -140,6 +142,8 @@ public:
      * @brief By default, returns the total number of elements (a product of all the dims or 1 for scalar)
      *
      * Return value and its interpretation heavily depend on the blob type
+     *
+     * @return The total number of elements
      */
     virtual size_t size() const noexcept {
         if (tensorDesc.getLayout() == Layout::SCALAR) return 1;
@@ -148,6 +152,7 @@ public:
 
     /**
      * @brief Returns the size of the current Blob in bytes.
+     * @return Blob's size in bytes
      */
     virtual size_t byteSize() const noexcept {
         return size() * element_size();
@@ -157,9 +162,11 @@ public:
      * @deprecated Cast to MemoryBlob and use its API instead.
      * Blob class can represent compound blob, which do not refer to the only solid memory.
      *
-     * @brief Returns the number of bytes per element.
+     * @brief Provides the number of bytes per element.
      *
      * The overall Blob capacity is size() * element_size(). Abstract method.
+     *
+     * @return Returns the number of bytes per element
      */
     virtual size_t element_size() const noexcept = 0;
 
@@ -174,6 +181,8 @@ public:
      * @brief Releases previously allocated data.
      *
      * Abstract method.
+     *
+     * @return `True` if deallocation happens successfully, `false` otherwise.
      */
     virtual bool deallocate() noexcept = 0;
 
@@ -198,6 +207,17 @@ public:
      * @return A LockedMemory object
      */
     virtual LockedMemory<const void> cbuffer() const noexcept = 0;
+
+    /**
+     * @brief Creates a blob describing given ROI object based on the current blob with memory sharing.
+     *
+     * Note: default implementation throws "not implemented" exception.
+     *
+     * @param roi A ROI object inside of the current blob.
+     *
+     * @return A shared pointer to the newly created ROI blob.
+     */
+    virtual Blob::Ptr createROI(const ROI& roi) const;
 
 protected:
     /**
@@ -231,13 +251,14 @@ protected:
      */
     virtual void* getHandle() const noexcept = 0;
 
+    /// private
     template <typename>
     friend class TBlobProxy;
 };
 
 /**
  * @brief Helper cast function to work with shared Blob objects
- *
+ * @param blob A blob to cast
  * @return shared_ptr to the type T. Returned shared_ptr shares ownership of the object with the
  *         input Blob::Ptr
  */
@@ -250,7 +271,7 @@ std::shared_ptr<T> as(const Blob::Ptr& blob) noexcept {
 
 /**
  * @brief Helper cast function to work with shared Blob objects
- *
+ * @param blob A blob to cast
  * @return shared_ptr to the type const T. Returned shared_ptr shares ownership of the object with
  *         the input Blob::Ptr
  */
@@ -308,6 +329,7 @@ public:
 
     /**
      * @brief Returns the total number of elements, which is a product of all the dimensions
+     * @return The total number of elements
      */
     size_t size() const noexcept override {
         if (tensorDesc.getLayout() == Layout::SCALAR) return 1;
@@ -392,7 +414,7 @@ public:
      *
      * The memory been addressed in the MemoryBlob in general case can be allocated on remote device.
      * This function copies remote memory to the memory in the virtual process space and after
-     * destruction of the LockedMemory it will not upload host memory back, bacause it is expected that
+     * destruction of the LockedMemory it will not upload host memory back, because it is expected that
      * content is not changed.
      *
      * To have an ability change content, you can use rwmap() and wmap() functions.
@@ -416,10 +438,10 @@ public:
      *
      * The memory been addressed in the MemoryBlob in general case can be allocated on remote device.
      * This function does not copy of the content from the device to the memory in the virtual process
-     * space, the content of the memory just after calling of this functin is not specified. After
+     * space, the content of the memory just after calling of this function is not specified. After
      * destruction of the LockedMemory, content will be upload host memory.
      * In the same time there is no abilities to restrict reading from the memory, you need to care of
-     * reading from memory got by wmap(), it might have sence in some cases like filling of content and
+     * reading from memory got by wmap(), it might have sense in some cases like filling of content and
      * before uploading to device
      *
      * To access data stored in the blob, you can use rwmap() and rmap() functions.
@@ -437,8 +459,6 @@ public:
      */
     virtual LockedMemory<void> wmap()noexcept = 0;
 
-
-
 protected:
     /**
      * @brief Gets the allocator for allocator-based blobs.
@@ -454,6 +474,7 @@ protected:
      */
     void* getHandle() const noexcept override = 0;
 
+    /// private
     template <typename>
     friend class TBlobProxy;
 };
@@ -503,7 +524,7 @@ public:
         }
 
         if (data_size != 0 && ptr == nullptr) {
-            THROW_IE_EXCEPTION << "Using Blob on external nullptr memory";
+            IE_THROW() << "Using Blob on external nullptr memory";
         }
 
         _allocator = details::make_pre_allocator(ptr, data_size);
@@ -519,7 +540,9 @@ public:
      * @param alloc An allocator
      */
     TBlob(const TensorDesc& tensorDesc, const std::shared_ptr<IAllocator>& alloc)
-        : MemoryBlob(tensorDesc), _allocator(alloc) {}
+        : MemoryBlob(tensorDesc), _allocator(alloc) {
+        if (_allocator == nullptr) IE_THROW() << "TBlob allocator was not initialized.";
+    }
 
     /**
      * @brief The copy constructor data is reallocated and copied from the source to the target blob.
@@ -553,13 +576,7 @@ public:
     /**
      *@brief Virtual destructor.
      */
-#ifdef __clang__
     virtual ~TBlob();
-#else
-    virtual ~TBlob() {
-        free();
-    }
-#endif  // __clang__
 
     /**
      * @brief Gets the size of the given type.
@@ -592,10 +609,18 @@ public:
      * @brief Allocates or reallocates memory
      */
     void allocate() noexcept override {
-        if (_handle != nullptr) {
-            getAllocator()->free(_handle);
+        const auto allocator = getAllocator();
+        const auto rawHandle = allocator->alloc(size() * sizeof(T));
+
+        if (rawHandle == nullptr) {
+            return;
         }
-        _handle = getAllocator()->alloc(size() * sizeof(T));
+
+        _handle.reset(
+            rawHandle,
+            [allocator](void* rawHandle) {
+                allocator->free(rawHandle);
+            });
     }
 
     /**
@@ -632,6 +657,10 @@ public:
     }
     LockedMemory<void> wmap()noexcept override {
         return std::move(lockme<void>());
+    }
+
+    Blob::Ptr createROI(const ROI& roi) const override {
+        return Blob::Ptr(new TBlob<T>(*this, roi));
     }
 
     /**
@@ -687,7 +716,7 @@ protected:
     /**
      * @brief A handle for the stored memory returned from _allocator.alloc().
      */
-    void* _handle = nullptr;
+    std::shared_ptr<void> _handle;
 
     /**
      * @brief Copies dimensions and data from the TBlob object.
@@ -718,8 +747,8 @@ protected:
      * @brief Frees handler and cleans up the stored data.
      */
     virtual bool free() {
-        bool bCanRelease = getAllocator()->free(_handle);
-        _handle = nullptr;
+        bool bCanRelease = _handle != nullptr;
+        _handle.reset();
         return bCanRelease;
     }
 
@@ -731,7 +760,7 @@ protected:
      */
     template <class S>
     LockedMemory<S> lockme() const {
-        return LockedMemory<S>(_allocator.get(), _handle, 0);
+        return LockedMemory<S>(_allocator.get(), getHandle(), 0);
     }
 
     /**
@@ -742,7 +771,7 @@ protected:
     const std::shared_ptr<IAllocator>& getAllocator() const noexcept override {
         // in case when constructor without allocator was used
         if (!_allocator) {
-            _allocator = shared_from_irelease(CreateDefaultAllocator());
+            _allocator = CreateDefaultAllocator();
         }
 
         return _allocator;
@@ -752,22 +781,38 @@ protected:
      * @brief Returns handle to the stored data.
      */
     void* getHandle() const noexcept override {
-        return _handle;
+        return _handle.get();
+    }
+
+    /**
+     * @brief Creates a blob from the existing blob with a given ROI
+     * @param origBlob An original blob
+     * @param roi A ROI object
+     */
+    TBlob(const TBlob& origBlob, const ROI& roi) :
+            MemoryBlob(make_roi_desc(origBlob.getTensorDesc(), roi, true)),
+            _allocator(origBlob._allocator) {
+        IE_ASSERT(origBlob._handle != nullptr)
+            << "Original Blob must be allocated before ROI creation";
+
+        _handle = origBlob._handle;
     }
 };
 
-#ifdef __clang__
 extern template class INFERENCE_ENGINE_API_CLASS(InferenceEngine::TBlob<float>);
 extern template class INFERENCE_ENGINE_API_CLASS(InferenceEngine::TBlob<double>);
-extern template class INFERENCE_ENGINE_API_CLASS(InferenceEngine::TBlob<int16_t>);
-extern template class INFERENCE_ENGINE_API_CLASS(InferenceEngine::TBlob<uint16_t>);
 extern template class INFERENCE_ENGINE_API_CLASS(InferenceEngine::TBlob<int8_t>);
 extern template class INFERENCE_ENGINE_API_CLASS(InferenceEngine::TBlob<uint8_t>);
-extern template class INFERENCE_ENGINE_API_CLASS(InferenceEngine::TBlob<int>);
+extern template class INFERENCE_ENGINE_API_CLASS(InferenceEngine::TBlob<int16_t>);
+extern template class INFERENCE_ENGINE_API_CLASS(InferenceEngine::TBlob<uint16_t>);
+extern template class INFERENCE_ENGINE_API_CLASS(InferenceEngine::TBlob<int32_t>);
+extern template class INFERENCE_ENGINE_API_CLASS(InferenceEngine::TBlob<uint32_t>);
 extern template class INFERENCE_ENGINE_API_CLASS(InferenceEngine::TBlob<long>);
 extern template class INFERENCE_ENGINE_API_CLASS(InferenceEngine::TBlob<long long>);
-extern template class INFERENCE_ENGINE_API_CLASS(InferenceEngine::TBlob<uint64_t>);
-#endif  // __clang__
+extern template class INFERENCE_ENGINE_API_CLASS(InferenceEngine::TBlob<unsigned long>);
+extern template class INFERENCE_ENGINE_API_CLASS(InferenceEngine::TBlob<unsigned long long>);
+extern template class INFERENCE_ENGINE_API_CLASS(InferenceEngine::TBlob<bool>);
+extern template class INFERENCE_ENGINE_API_CLASS(InferenceEngine::TBlob<char>);
 
 /**
  * @brief Creates a blob with the given tensor descriptor.
@@ -779,7 +824,7 @@ extern template class INFERENCE_ENGINE_API_CLASS(InferenceEngine::TBlob<uint64_t
 template <typename Type>
 inline typename InferenceEngine::TBlob<Type>::Ptr make_shared_blob(const TensorDesc& tensorDesc) {
     if (!tensorDesc.getPrecision().hasStorageType<Type>())
-        THROW_IE_EXCEPTION << "Cannot make shared blob! "
+        IE_THROW() << "Cannot make shared blob! "
                            << "The blob type cannot be used to store objects of current precision";
     return std::make_shared<InferenceEngine::TBlob<Type>>(tensorDesc);
 }
@@ -797,7 +842,7 @@ template <typename Type>
 inline typename InferenceEngine::TBlob<Type>::Ptr make_shared_blob(const TensorDesc& tensorDesc, Type* ptr,
                                                                    size_t size = 0) {
     if (!tensorDesc.getPrecision().hasStorageType<Type>())
-        THROW_IE_EXCEPTION << "Cannot make shared blob! "
+        IE_THROW() << "Cannot make shared blob! "
                            << "The blob type cannot be used to store objects of current precision";
     return std::make_shared<InferenceEngine::TBlob<Type>>(tensorDesc, ptr, size);
 }
@@ -814,7 +859,7 @@ template <typename Type>
 inline typename InferenceEngine::TBlob<Type>::Ptr make_shared_blob(
     const TensorDesc& tensorDesc, const std::shared_ptr<InferenceEngine::IAllocator>& alloc) {
     if (!tensorDesc.getPrecision().hasStorageType<Type>())
-        THROW_IE_EXCEPTION << "Cannot make shared blob! "
+        IE_THROW() << "Cannot make shared blob! "
                            << "The blob type cannot be used to store objects of current precision";
     return std::make_shared<InferenceEngine::TBlob<Type>>(tensorDesc, alloc);
 }
@@ -841,17 +886,6 @@ template <typename T, typename... Args, typename std::enable_if<std::is_base_of<
 std::shared_ptr<T> make_shared_blob(Args&&... args) {
     return std::make_shared<T>(std::forward<Args>(args)...);
 }
-
-/**
- * @brief This structure describes ROI data.
- */
-struct ROI {
-    size_t id;  //!< ID of a ROI
-    size_t posX;  //!< W upper left coordinate of ROI
-    size_t posY;  //!< H upper left coordinate of ROI
-    size_t sizeX;  //!< W size of ROI
-    size_t sizeY;  //!< H size of ROI
-};
 
 /**
  * @brief Creates a blob describing given ROI object based on the given blob with pre-allocated memory.

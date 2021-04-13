@@ -1,4 +1,4 @@
-// Copyright (C) 2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -9,18 +9,20 @@
 #include <vector>
 #include <memory>
 
-namespace ngraph {
-namespace pass {
+namespace vpu {
 
-class DynamicToStaticShape : public FunctionPass {
+using Transformations = std::unordered_map<ngraph::NodeTypeInfo, std::function<void(std::shared_ptr<ngraph::Node>)>>;
+
+class DynamicToStaticShape: public ngraph::pass::FunctionPass {
 public:
-    DynamicToStaticShape() = default;
-
+    NGRAPH_RTTI_DECLARATION;
+    explicit DynamicToStaticShape(const Transformations& specificTransformations = {});
     bool run_on_function(std::shared_ptr<ngraph::Function> function) override;
 
+    // Keep this method for backward compatibility with other plugins
+    void transform(std::shared_ptr<ngraph::Function> function) { run_on_function(std::move(function)); }
 private:
-    bool validateStaticShapes(std::shared_ptr<ngraph::Function> function) const;
+    Transformations transformations;
 };
 
-}  // namespace pass
-}  // namespace ngraph
+}  // namespace vpu

@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -7,8 +7,7 @@
 #include <gtest/gtest.h>
 #include <fstream>
 #include <string>
-#include <details/ie_cnn_network_tools.h>
-#include "low_precision_transformations/network_helper.hpp"
+#include <legacy/details/ie_cnn_network_tools.h>
 
 // use to display additional test info:
 //   1. low precision transformation parameters
@@ -20,11 +19,7 @@ using namespace InferenceEngine;
 IE_SUPPRESS_DEPRECATED_START
 
 class TestsCommonFunc {
-public:
-
-    InferenceEngine::Blob::Ptr readInput(std::string path, int batch = 1);
-
-    static CNNLayerPtr getLayer(const ICNNNetwork& network, const std::string& layerName) {
+    static CNNLayerPtr getLayer(const CNNNetwork& network, const std::string& layerName) {
         std::vector<CNNLayerPtr> layers = InferenceEngine::details::CNNNetSortTopologically(network);
         for (CNNLayerPtr layer : layers) {
             if (layer->name == layerName) {
@@ -34,9 +29,12 @@ public:
 
         return nullptr;
     }
+public:
+
+    InferenceEngine::Blob::Ptr readInput(std::string path, int batch = 1);
 
     static void checkLayerOuputPrecision(
-        const ICNNNetwork& network,
+        const CNNNetwork& network,
         const std::vector<std::string>& layerNames,
         const Precision expectedPrecision,
         const std::string& type = "") {
@@ -44,46 +42,31 @@ public:
             if (!type.empty()) {
                 const CNNLayerPtr layer = getLayer(network, layerName);
                 if (layer == nullptr) {
-                    THROW_IE_EXCEPTION << "layer was not found " << layerName;
+                    IE_THROW() << "layer was not found " << layerName;
                 }
 
                 if (layer->type != type) {
-                    THROW_IE_EXCEPTION << "layer '" << layer->name << "' type '" << layer->type << "' is not correct, expected " << type;
+                    IE_THROW() << "layer '" << layer->name << "' type '" << layer->type << "' is not correct, expected " << type;
                 }
             }
             checkLayerOuputPrecision(network, layerName, expectedPrecision);
         }
     }
 
-    static void checkLayerOuputPrecision(const ICNNNetwork& network, const std::string& layerName, Precision expectedPrecision) {
+    static void checkLayerOuputPrecision(const CNNNetwork& network, const std::string& layerName, Precision expectedPrecision) {
         CNNLayerPtr layer = getLayer(network, layerName);
         if (layer == nullptr) {
-            THROW_IE_EXCEPTION << "layer '" << layerName << "' was not found";
+            IE_THROW() << "layer '" << layerName << "' was not found";
         }
         for (DataPtr data : layer->outData) {
             ASSERT_EQ(expectedPrecision, data->getPrecision()) << " unexpected precision " << data->getPrecision() << " for layer " << layerName;
         }
     }
 
-    static void checkLayerInputPrecision(const ICNNNetwork& network, const std::string& layerName, Precision expectedPrecision, int inputIndex = -1) {
+    static void checkLayerOuputPrecision(const CNNNetwork& network, const std::string& layerName, std::vector<Precision> expectedPrecisions) {
         CNNLayerPtr layer = getLayer(network, layerName);
         if (layer == nullptr) {
-            THROW_IE_EXCEPTION << "layer '" << layerName << "' was not found";
-        }
-        for (size_t index = 0ul; index < layer->insData.size(); ++index) {
-            if ((inputIndex != -1) && (index != inputIndex)) {
-                continue;
-            }
-
-            const DataWeakPtr weakData = layer->insData[index];
-            ASSERT_EQ(expectedPrecision, weakData.lock()->getPrecision()) << " unexpected precision " << weakData.lock()->getPrecision() << " for layer " << layerName;
-        }
-    }
-
-    static void checkLayerOuputPrecision(const ICNNNetwork& network, const std::string& layerName, std::vector<Precision> expectedPrecisions) {
-        CNNLayerPtr layer = getLayer(network, layerName);
-        if (layer == nullptr) {
-            THROW_IE_EXCEPTION << "layer '" << layerName << "' was not found";
+            IE_THROW() << "layer '" << layerName << "' was not found";
         }
         for (DataPtr data : layer->outData) {
             ASSERT_TRUE(std::any_of(
@@ -92,30 +75,6 @@ public:
                 [&](const Precision precision) { return precision == data->getTensorDesc().getPrecision(); })) <<
                 " unexpected precision " << data->getPrecision() << " for layer " << layerName;
         }
-    }
-
-    static bool hasBlobEqualsValues(Blob& blob) {
-        const float* buffer = blob.buffer().as<float*>();
-        for (int i = 0; i < (blob.size() - 1); ++i) {
-            if (buffer[i] != buffer[i + 1]) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    static bool checkScalesAndShifts(const CNNLayer& scaleShift, const bool equals) {
-        const Blob::Ptr scalesBlob = InferenceEngine::details::CNNNetworkHelper::getBlob(std::make_shared<CNNLayer>(scaleShift), "weights");
-        if (equals != hasBlobEqualsValues(*scalesBlob)) {
-            return false;
-        }
-
-        const Blob::Ptr shiftsBlob = InferenceEngine::details::CNNNetworkHelper::getBlob(std::make_shared<CNNLayer>(scaleShift), "biases");
-        if (equals != hasBlobEqualsValues(*shiftsBlob)) {
-            return false;
-        }
-
-        return true;
     }
 
     bool compareTop(

@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -6,7 +6,7 @@
 #include "ngraph_reader_tests.hpp"
 TEST_F(NGraphReaderTests, ReadOneHotFP32) {
     std::string model = R"V0G0N(
-<net name="OneHot" version="10">
+<net name="Network" version="10">
     <layers>
         <layer id="0" name="in1" type="Parameter"  version="opset1">
             <data element_type="i64" shape="1,10,22"/>
@@ -19,19 +19,19 @@ TEST_F(NGraphReaderTests, ReadOneHotFP32) {
             </output>
         </layer>
         <layer id="1" name="data1" precision="I64" type="Const" version="opset1">
-            <data offset="0" size="8"/>
+            <data element_type="i64" offset="0" shape="" size="8"/>
             <output>
                 <port id="0" precision="I64"/>
             </output>
         </layer>
         <layer id="2" name="data2" precision="FP32" type="Const" version="opset1">
-            <data offset="8" size="4"/>
+            <data element_type="f32" offset="8" shape="" size="4"/>
             <output>
                 <port id="0" precision="FP32"/>
             </output>
         </layer>
         <layer id="3" name="data3" precision="FP32" type="Const" version="opset1">
-            <data offset="12" size="4"/>
+            <data element_type="f32" offset="12" shape="" size="4"/>
             <output>
                 <port id="0" precision="FP32"/>
             </output>
@@ -78,7 +78,7 @@ TEST_F(NGraphReaderTests, ReadOneHotFP32) {
 </net>
 )V0G0N";
     std::string modelV5 = R"V0G0N(
-<net name="OneHot" version="5" precision="FP32" batch="1">
+<net name="Network" version="5" precision="FP32" batch="1">
     <layers>
         <layer name="in1" type="Input" precision="I64" id="0">
             <output>
@@ -124,9 +124,9 @@ TEST_F(NGraphReaderTests, ReadOneHotFP32) {
     });
 }
 
-TEST_F(NGraphReaderTests, ReadOneHotINT16) {
+TEST_F(NGraphReaderTests, DISABLED_ReadOneHotINT16) {
     std::string model = R"V0G0N(
-<net name="OneHot" version="10">
+<net name="Network" version="10">
     <layers>
         <layer id="0" name="in1" type="Parameter"  version="opset1">
             <data element_type="i64" shape="1,10,22"/>
@@ -139,19 +139,19 @@ TEST_F(NGraphReaderTests, ReadOneHotINT16) {
             </output>
         </layer>
         <layer id="1" name="data1" precision="I64" type="Const" version="opset1">
-            <data offset="0" size="8"/>
+            <data element_type="i64" offset="0" shape="" size="8"/>
             <output>
                 <port id="0" precision="I64"/>
             </output>
         </layer>
         <layer id="2" name="data2" precision="I16" type="Const" version="opset1">
-            <data offset="8" size="2"/>
+            <data element_type="i16" offset="8" shape="" size="2"/>
             <output>
                 <port id="0" precision="I16"/>
             </output>
         </layer>
         <layer id="3" name="data3" precision="I16" type="Const" version="opset1">
-            <data offset="10" size="2"/>
+            <data element_type="i16" offset="10" shape="" size="2"/>
             <output>
                 <port id="0" precision="I16"/>
             </output>
@@ -224,7 +224,7 @@ TEST_F(NGraphReaderTests, ReadOneHotINT16) {
 </net>
 )V0G0N";
     std::string modelV5 = R"V0G0N(
-<net name="OneHot" version="5" precision="FP32" batch="1">
+<net name="Network" version="5" precision="FP32" batch="1">
     <layers>
         <layer name="in1" type="Input" precision="I64" id="0">
             <output>
@@ -254,7 +254,7 @@ TEST_F(NGraphReaderTests, ReadOneHotINT16) {
             </output>
         </layer>
         <layer id="2" name="onehot/Convert" type="Convert" precision="I16">
-            <data precision="I16"/>
+            <data precision="I16" originalLayersNames="one_hot_v10"/>
             <input>
                 <port id="0">
                     <dim>1</dim>

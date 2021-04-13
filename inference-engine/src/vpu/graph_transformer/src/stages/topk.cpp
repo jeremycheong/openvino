@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -139,10 +139,13 @@ void FrontEnd::parseTopK(const Model& model, const ie::CNNLayerPtr& _layer, cons
     IE_ASSERT(!outputValues || outputValues->desc().numDims() == numDims);
     IE_ASSERT(!outputIndices || outputIndices->desc().numDims() == numDims);
 
-    IE_ASSERT(layer->axis < numDims);
+    VPU_THROW_UNLESS(layer->axis < numDims && layer->axis >= -numDims,
+        "Failed to parse layer {} with type {}: axis is expected to be in range [{}, {}], but got {}",
+        layer->name, layer->type, -numDims, numDims - 1, layer->axis);
 
-    auto perm = DimsOrder::fromNumDims(numDims).toPermutation();
-    auto axis = perm[numDims - 1 - layer->axis];
+    const auto perm = DimsOrder::fromNumDims(numDims).toPermutation();
+    const auto normalizedAxis = layer->axis + (layer->axis < 0 ? numDims : 0);
+    const auto axis = perm[numDims - 1 - normalizedAxis];
 
     const TopKMode mode = getMode(layer);
     const TopKSort sort = getSort(layer);
@@ -157,12 +160,8 @@ void FrontEnd::parseTopK(const Model& model, const ie::CNNLayerPtr& _layer, cons
         realOutputs = {outputValues};
     }
 
-    const bool isArgMaxPossible = outputsMode != TopKOutputs::All && mode == TopKMode::Max
-               && ((sort == TopKSort::Value && outputsMode == TopKOutputs::ValueOnly)
-                || (sort == TopKSort::Index && outputsMode == TopKOutputs::IndexOnly));
-
     auto stage = model->addNewStage<TopKStage>(layer->name,
-                                               isArgMaxPossible ? StageType::ArgMax : StageType::TopK,
+                                               StageType::TopK,
                                                layer, inputs, realOutputs);
 
     stage->attrs().set<Dim>("axis", axis);

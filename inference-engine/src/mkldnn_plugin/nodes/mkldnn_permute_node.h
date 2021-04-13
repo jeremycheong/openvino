@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -37,13 +37,15 @@ struct jit_uni_permute_kernel {
 
     jit_permute_conf_t jpp;
 
+    virtual void create_ker() = 0;
+
     explicit jit_uni_permute_kernel(jit_permute_conf_t jpp) : ker_(nullptr), jpp(jpp) {}
     virtual ~jit_uni_permute_kernel() {}
 };
 
 class MKLDNNPermuteNode : public MKLDNNNode {
 public:
-    MKLDNNPermuteNode(const InferenceEngine::CNNLayerPtr& layer, const mkldnn::engine& eng, int socket);
+    MKLDNNPermuteNode(const InferenceEngine::CNNLayerPtr& layer, const mkldnn::engine& eng, MKLDNNWeightsSharing::Ptr &cache);
     ~MKLDNNPermuteNode() override = default;
 
     void getSupportedDescriptors() override;
@@ -53,6 +55,10 @@ public:
     bool created() const override;
     bool canBeInPlace() const override {
         return false;
+    }
+
+    const InferenceEngine::SizeVector& getOrder() const {
+        return order;
     }
 
 private:
@@ -68,7 +74,7 @@ private:
         isApplicable isValidParams;
     };
 
-    static std::multimap<InferenceEngine::SizeVector, PermuteImpl> OptimizedCases;
+    static const std::multimap<InferenceEngine::SizeVector, PermuteImpl> OptimizedCases;
     std::shared_ptr<jit_uni_permute_kernel> permute_kernel;
 };
 

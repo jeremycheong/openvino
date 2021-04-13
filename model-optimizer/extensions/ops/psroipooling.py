@@ -1,18 +1,5 @@
-"""
- Copyright (C) 2018-2020 Intel Corporation
-
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
-      http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
-"""
+# Copyright (C) 2018-2021 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 
 from mo.front.common.layout import get_batch_dim, shape_for_layout
 from mo.graph.graph import Node, Graph
@@ -25,8 +12,9 @@ class PSROIPoolingOp(Op):
 
     def __init__(self, graph: Graph, attrs: dict):
         mandatory_props = {
-            'type': __class__.op,
-            'op': __class__.op,
+            'type': self.op,
+            'op': self.op,
+            'version': 'opset2',
             'mode': 'average',
             'in_ports_count': 2,
             'out_ports_count': 1,
@@ -37,19 +25,14 @@ class PSROIPoolingOp(Op):
         super().__init__(graph, mandatory_props, attrs)
 
     def supported_attrs(self):
-        attrs = [
+        return [
             'spatial_scale',
             'output_dim',
             ('group_size', lambda node: int(node.group_size)),
             'mode',
             'spatial_bins_x',
             'spatial_bins_y',
-            'pooled_width',
-            'pooled_height',
         ]
-        if not self.graph.graph['cmd_params'].generate_experimental_IR_V10:
-            attrs.extend(['no_trans', 'trans_std', 'part_size'])
-        return attrs
 
     @staticmethod
     def psroipooling_infer(node: Node):
@@ -81,8 +64,9 @@ class DeformablePSROIPoolingOp(PSROIPoolingOp):
 
     def __init__(self, graph: Graph, attrs: dict):
         updated_attrs = {
-            'type': __class__.op,
-            'op': __class__.op,
+            'type': self.op,
+            'op': self.op,
+            'version': 'opset1',
             'mode': 'bilinear_deformable',
             'in_ports_count': 3,
             'trans_std': 0,

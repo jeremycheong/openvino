@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -99,6 +99,7 @@ const SupportedConversionSet ConvertStage::expectedTypes = {
         {DataType::FP32, DataType::FP16},
         {DataType::S32, DataType::FP16},
         {DataType::FP16, DataType::S32},
+        {DataType::S32, DataType::U8},
 };
 
 }  // namespace

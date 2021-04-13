@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -7,6 +7,8 @@
 #include <utility>
 #include <vector>
 #include <map>
+#include <regex>
+#include <iostream>
 
 #include <samples/common.hpp>
 #include <samples/slog.hpp>
@@ -16,6 +18,41 @@
 #ifdef USE_OPENCV
 #include <opencv2/core.hpp>
 #endif
+
+namespace benchmark_app {
+    bool InputInfo::isImage() const {
+        if ((layout != "NCHW") && (layout != "NHWC") &&
+            (layout != "CHW") && (layout != "HWC"))
+            return false;
+        return (channels() == 3);
+    }
+    bool InputInfo::isImageInfo() const {
+        if (layout != "NC")
+            return false;
+        return (channels() >= 2);
+    }
+    size_t InputInfo::getDimentionByLayout(char character) const {
+        size_t pos = layout.find(character);
+        if (pos == std::string::npos)
+            throw std::runtime_error("Error: Can't get " + std::string(character, 1) + " from layout " + layout);
+        return shape.at(pos);
+    }
+    size_t InputInfo::width() const {
+        return getDimentionByLayout('W');
+    }
+    size_t InputInfo::height() const {
+        return getDimentionByLayout('H');
+    }
+    size_t InputInfo::channels() const {
+        return getDimentionByLayout('C');
+    }
+    size_t InputInfo::batch() const {
+        return getDimentionByLayout('N');
+    }
+    size_t InputInfo::depth() const {
+        return getDimentionByLayout('D');
+    }
+} // namespace benchmark_app
 
 uint32_t deviceDefaultDeviceDurationInSeconds(const std::string& device) {
     static const std::map<std::string, uint32_t> deviceDefaultDurationInSeconds {
@@ -99,6 +136,36 @@ std::map<std::string, std::string> parseNStreamsValuePerDevice(const std::vector
         }
     }
     return result;
+}
+
+size_t getBatchSize(const benchmark_app::InputsInfo& inputs_info) {
+    size_t batch_size = 0;
+    for (auto& info : inputs_info) {
+        std::size_t batch_index = info.second.layout.find("N");
+        if (batch_index != std::string::npos) {
+            if (batch_size == 0)
+                batch_size = info.second.shape[batch_index];
+            else if (batch_size != info.second.shape[batch_index])
+                throw std::logic_error("Can't deterimine batch size: batch is different for different inputs!");
+        }
+    }
+    if (batch_size == 0)
+        batch_size = 1;
+    return batch_size;
+}
+
+std::string getShapesString(const InferenceEngine::ICNNNetwork::InputShapes& shapes) {
+    std::stringstream ss;
+    for (auto& shape : shapes) {
+        if (!ss.str().empty()) ss << ", ";
+        ss << "\'" << shape.first << "': [";
+        for (size_t i = 0; i < shape.second.size(); i++) {
+            if (i > 0) ss << ", ";
+            ss << shape.second.at(i);
+        }
+        ss << "]";
+    }
+    return ss.str();
 }
 
 #ifdef USE_OPENCV

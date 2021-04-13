@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -23,5 +23,5 @@ public:
                                  const ITaskExecutor::Ptr &callbackExecutor)
             : AsyncInferRequestThreadSafeDefault(request, taskExecutor, callbackExecutor) {}
 
-    MOCK_METHOD0(StartAsync_ThreadUnsafe, void());
+    MOCK_METHOD0(CheckBlob, void());
 };

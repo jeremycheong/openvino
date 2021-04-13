@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -13,9 +13,11 @@
 #include <memory>
 #include <string>
 
-#include "details/ie_exception_conversion.hpp"
+#include "cpp/ie_memory_state.hpp"
+#include "ie_remote_context.hpp"
 #include "ie_iinfer_request.hpp"
-#include "ie_plugin_ptr.hpp"
+#include "details/ie_so_loader.h"
+#include "ie_blob.h"
 
 namespace InferenceEngine {
 
@@ -63,7 +65,7 @@ public:
  */
 class InferRequest {
     IInferRequest::Ptr actual;
-    InferenceEnginePluginPtr plg;
+    InferenceEngine::details::SharedObjectLoader::Ptr plg;
     std::shared_ptr<details::ICompletionCallbackWrapper> callback;
 
     static void callWrapper(InferenceEngine::IInferRequest::Ptr request, InferenceEngine::StatusCode code) {
@@ -78,6 +80,18 @@ public:
      * @brief Default constructor
      */
     InferRequest() = default;
+
+    /**
+     * constructs InferRequest from the initialized shared_pointer
+     * @param request Initialized shared pointer to IInferRequest interface
+     * @param splg Plugin to use. This is required to ensure that InferRequest can work properly even if plugin object is destroyed.
+     */
+    explicit InferRequest(IInferRequest::Ptr request,
+                          InferenceEngine::details::SharedObjectLoader::Ptr splg = {}):
+                          actual(request), plg(splg) {
+        //  plg can be null, but not the actual
+        if (actual == nullptr) IE_THROW() << "InferRequest was not initialized.";
+    }
 
     /**
      * @brief Destructor
@@ -110,8 +124,9 @@ public:
         CALL_STATUS_FNC(GetBlob, name.c_str(), data);
         std::string error = "Internal error: blob with name `" + name + "` is not allocated!";
         auto blobPtr = data.get();
-        if (blobPtr == nullptr) THROW_IE_EXCEPTION << error;
-        if (blobPtr->buffer() == nullptr) THROW_IE_EXCEPTION << error;
+        const bool remoteBlobPassed = blobPtr->is<RemoteBlob>();
+        if (blobPtr == nullptr) IE_THROW() << error;
+        if (!remoteBlobPassed && blobPtr->buffer() == nullptr) IE_THROW() << error;
         return data;
     }
 
@@ -145,6 +160,15 @@ public:
      */
     void Infer() {
         CALL_STATUS_FNC_NO_ARGS(Infer);
+    }
+
+    /**
+     * @copybrief IInferRequest::Cancel
+     *
+     * Wraps IInferRequest::Cancel
+     */
+    void Cancel() {
+        CALL_STATUS_FNC_NO_ARGS(Cancel);
     }
 
     /**
@@ -195,18 +219,6 @@ public:
     }
 
     /**
-     * constructs InferRequest from the initialized shared_pointer
-     * @param request Initialized shared pointer to IInferRequest interface
-     * @param plg Plugin to use. This is required to ensure that InferRequest can work properly even if plugin object is destroyed.
-     */
-    explicit InferRequest(IInferRequest::Ptr request, InferenceEnginePluginPtr plg = {}): actual(request), plg(plg) {
-        //  plg can be null, but not the actual
-        if (actual == nullptr) {
-            THROW_IE_EXCEPTION << "InferRequest wrapper was not initialized.";
-        }
-    }
-
-    /**
      * @brief Start inference of specified input(s) in asynchronous mode
      *
      * @note It returns immediately. Inference starts also immediately.
@@ -228,12 +240,13 @@ public:
      */
     StatusCode Wait(int64_t millis_timeout) {
         ResponseDesc resp;
-        if (actual == nullptr) {
-            THROW_IE_EXCEPTION << "InferRequest wrapper was not initialized.";
-        }
+        if (actual == nullptr) IE_THROW() << "InferRequest was not initialized.";
         auto res = actual->Wait(millis_timeout, &resp);
-        if (res != OK && res != RESULT_NOT_READY && res != INFER_NOT_STARTED) {
-            InferenceEngine::details::extract_exception(res, resp.msg);
+        if (res != OK && res != RESULT_NOT_READY &&
+            res != INFER_NOT_STARTED && res != INFER_CANCELLED) {
+            IE_EXCEPTION_SWITCH(res, ExceptionType,
+                InferenceEngine::details::ThrowNow<ExceptionType>{}
+                    <<= std::stringstream{} << IE_LOCATION << resp.msg)
         }
         return res;
     }
@@ -253,10 +266,38 @@ public:
     }
 
     /**
+     * @copybrief IExecutableNetwork::QueryState
+     *
+     * Wraps IExecutableNetwork::QueryState
+     * @return A vector of Memory State objects
+     */
+    std::vector<VariableState> QueryState() {
+        IE_SUPPRESS_DEPRECATED_START
+        if (actual == nullptr) IE_THROW() << "ExecutableNetwork was not initialized.";
+        IVariableState::Ptr pState = nullptr;
+        auto res = OK;
+        std::vector<VariableState> controller;
+        for (size_t idx = 0; res == OK; ++idx) {
+            ResponseDesc resp;
+            res = actual->QueryState(pState, idx, &resp);
+            if (res != OK && res != OUT_OF_BOUNDS) {
+                IE_THROW() << resp.msg;
+            }
+            if (res != OUT_OF_BOUNDS) {
+                controller.push_back(VariableState(pState, plg));
+            }
+        }
+        IE_SUPPRESS_DEPRECATED_END
+
+        return controller;
+    }
+
+    /**
      * @brief  IInferRequest pointer to be used directly in CreateInferRequest functions
      * @return A shared pointer to underlying IInferRequest interface
      */
     operator IInferRequest::Ptr&() {
+        if (actual == nullptr) IE_THROW() << "InferRequest was not initialized.";
         return actual;
     }
 

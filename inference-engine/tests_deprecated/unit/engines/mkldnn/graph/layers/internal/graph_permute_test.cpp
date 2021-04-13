@@ -1,20 +1,14 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
-
-#include <gtest/gtest.h>
-#include <gmock/gmock-spec-builders.h>
-#include "mkldnn_graph.h"
 
 #include "test_graph.hpp"
 
 #include "single_layer_common.hpp"
-#include <mkldnn_extension_utils.h>
-#include <cnn_network_impl.hpp>
 #include "tests_common.hpp"
 #include <nodes/base.hpp>
 
-#include <cpp/ie_cnn_net_reader.h>
+#include <ie_core.hpp>
 #include <ie_plugin_config.hpp>
 
 using namespace ::testing;
@@ -23,6 +17,12 @@ using namespace mkldnn;
 using namespace InferenceEngine;
 using namespace Extensions;
 using namespace ::Cpu;
+
+namespace {
+
+OV_CC_DOMAINS(GraphPermuteTests);
+
+}   // namespace
 
 struct permute_test_params {
     Layout layout_in, layout_out;
@@ -46,7 +46,7 @@ public:
             block_dims = layer->GetParamAsInts("block_dims");
             order = layer->GetParamAsInts("order");
             addConfig(layer);
-        } catch (InferenceEngine::details::InferenceEngineException &ex) {
+        } catch (InferenceEngine::Exception &ex) {
             errorMsg = ex.what();
         }
     }
@@ -60,7 +60,7 @@ public:
 
         // Fill tensor parameters into config
         auto fill_port = [&] (std::vector<DataConfig>& port, const DataPtr& data) {
-            if (!data) THROW_IE_EXCEPTION << "Cannot get input data!";
+            if (!data) IE_THROW() << "Cannot get input data!";
 
             DataConfig dataConfig;
             dataConfig.inPlace = 0;
@@ -96,8 +96,6 @@ public:
         return OK;
     }
 };
-
-REG_FACTORY_FOR(Cpu::ImplFactory<FakeLayerImpl_permute>, FakeLayer_permute);
 
 static std::string precToStr (Precision prec) {
     return prec == Precision::I8 ? "I8" : "FP32";
@@ -255,11 +253,18 @@ protected:
             permute_test_params p = initialize_permute_test_params();
             std::string model = getModel(p);
 
-            CNNNetReader net_reader;
-            ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
+            Core core;
+            CNNNetwork network;
+            ASSERT_NO_THROW(network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr()));
 
             MKLDNNGraphTestClass graph;
-            graph.CreateGraph(net_reader.getNetwork());
+            auto manager = std::make_shared<MKLDNNPlugin::MKLDNNExtensionManager>();
+            {
+                auto defaultExt = std::make_shared<Cpu::MKLDNNExtensions>();
+                defaultExt->layersFactory.registerNodeIfRequired(GraphPermuteTests, FakeLayer_permute, "FakeLayer_permute", Cpu::ImplFactory<FakeLayerImpl_permute>);
+                manager->AddExtension(defaultExt);
+            }
+            graph.CreateGraph(network, manager);
             auto& nodes = graph.getNodes();
             for (int i = 0; i < nodes.size(); i++) {
                 if (nodes[i]->getType() == MKLDNNPlugin::Permute) {
@@ -284,7 +289,7 @@ protected:
             srcs.insert(std::pair<std::string, InferenceEngine::Blob::Ptr>("in1", src));
 
             OutputsDataMap out;
-            out = net_reader.getNetwork().getOutputsInfo();
+            out = network.getOutputsInfo();
             BlobMap outputBlobs;
 
             auto item = *out.begin();
@@ -303,7 +308,7 @@ protected:
             ref_permute(*srcPtr, dst_ref, p);
 
             compare(*output, dst_ref);
-        } catch (const details::InferenceEngineException &e) {
+        } catch (const Exception &e) {
             FAIL() << e.what();
         }
     }
@@ -545,18 +550,25 @@ protected:
                 MB = 2;
             p.dims[0] = MB;
 
-            InferenceEngine::CNNNetReader net_reader;
-            ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
-            InferenceEngine::CNNNetwork network = net_reader.getNetwork();
-            auto implNet = dynamic_cast<InferenceEngine::details::CNNNetworkImpl *>(&((InferenceEngine::ICNNNetwork&)network));
-            ASSERT_NE(nullptr, implNet) << "Failed to cast ICNNNetwork to CNNNetworkImpl";
+            InferenceEngine::Core core;
+            InferenceEngine::CNNNetwork network;
+            ASSERT_NO_THROW(network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr()));
+
+            ASSERT_EQ(nullptr, network.getFunction());
+            auto implNet = static_cast<InferenceEngine::details::CNNNetworkImpl *>(&((InferenceEngine::ICNNNetwork&)network));
             InferenceEngine::ResponseDesc resp;
             InferenceEngine::StatusCode sts  = implNet->setBatchSizeReshape(MB, &resp);
             ASSERT_EQ((int)InferenceEngine::StatusCode::OK, sts) << resp.msg;
 
+            auto manager = std::make_shared<MKLDNNPlugin::MKLDNNExtensionManager>();
+            {
+                auto defaultExt = std::make_shared<Cpu::MKLDNNExtensions>();
+                defaultExt->layersFactory.registerNodeIfRequired(GraphPermuteTests, FakeLayer_permute, "FakeLayer_permute", Cpu::ImplFactory<FakeLayerImpl_permute>);
+                manager->AddExtension(defaultExt);
+            }
             MKLDNNGraphTestClass graph;
             graph.setProperty({{InferenceEngine::PluginConfigParams::KEY_DYN_BATCH_ENABLED, InferenceEngine::PluginConfigParams::YES}});
-            graph.CreateGraph(net_reader.getNetwork());
+            graph.CreateGraph(network, manager);
 
             InferenceEngine::Blob::Ptr src = InferenceEngine::make_shared_blob<float>({InferenceEngine::Precision::FP32, p.dims, InferenceEngine::TensorDesc::getLayoutByDims(p.dims)});
             src->allocate();
@@ -571,7 +583,7 @@ protected:
             srcs.insert(std::pair<std::string, InferenceEngine::Blob::Ptr>("in1", src));
 
             InferenceEngine::OutputsDataMap out;
-            out = net_reader.getNetwork().getOutputsInfo();
+            out = network.getOutputsInfo();
             InferenceEngine::BlobMap outputBlobs;
 
             std::pair<std::string, InferenceEngine::DataPtr> item = *out.begin();
@@ -586,7 +598,7 @@ protected:
             };
             graph.checkDynBatch(srcs, outputBlobs, MB, MB, checkPermute);
             graph.checkDynBatch(srcs, outputBlobs, 1, MB, checkPermute);
-        } catch (const InferenceEngine::details::InferenceEngineException &e) {
+        } catch (const InferenceEngine::Exception &e) {
             FAIL() << e.what();
         }
     }

@@ -1,18 +1,5 @@
-"""
- Copyright (C) 2018-2020 Intel Corporation
-
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
-      http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
-"""
+# Copyright (C) 2018-2021 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 
 from extensions.ops.topk import TopK
 from mo.graph.graph import Graph
@@ -28,7 +15,6 @@ class ArgMaxToTopK(MiddleReplacementPattern):
     op = "ArgMax"
     enabled = True
     force_clean_up = True
-    graph_condition = [lambda graph: graph.graph['cmd_params'].generate_experimental_IR_V10]
 
     def pattern(self):
         return dict(
@@ -40,6 +26,7 @@ class ArgMaxToTopK(MiddleReplacementPattern):
 
     def replace_pattern(self, graph: Graph, match: dict):
         node = match['argmax']
+        node_name = node.soft_get('name', node.id)
 
         connected_ports = [port for port in node.in_ports().values() if not port.disconnected()]
         if len(connected_ports) == 2:
@@ -47,9 +34,11 @@ class ArgMaxToTopK(MiddleReplacementPattern):
         else:
             axis = node.axis
 
-        assert axis is not None, 'The "axis" should be defined for node "{}"'.format(node.soft_get('name'))
+        assert axis is not None, 'The "axis" should be defined for node "{}"'.format(node_name)
+        assert node.has_and_set('output_type'), 'The data type is not set for node "{}"'.format(node_name)
         topk_node = TopK(graph, {'axis': axis, 'mode': 'max', 'sort': 'index',
-                                 'remove_values_output': node.has_and_set('remove_values_output')}).create_node()
+                                 'remove_values_output': node.has_and_set('remove_values_output'),
+                                 'index_element_type': node.output_type}).create_node()
         node.in_port(0).get_connection().set_destination(topk_node.in_port(0))
         if node.has_and_set('out_max_val'):  # in this mode the ArgMax produces tuples (max_ind, max_value)
             concat_node = Concat(graph, {'axis': 1, 'name': node.name + '/Concat'}).create_node()

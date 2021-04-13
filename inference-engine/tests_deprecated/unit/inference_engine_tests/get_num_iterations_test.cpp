@@ -1,11 +1,11 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
 #include <gtest/gtest.h>
 
-#include "ie_layers.h"
-#include "ie_layers_internal.hpp"
+#include <legacy/ie_layers.h>
+#include <legacy/ie_layers_internal.hpp>
 #include "single_layer_common.hpp"
 
 namespace {
@@ -61,19 +61,6 @@ public:
         return stream;;
     }
 };
-
-template<class T>
-std::ostream& operator<<(std::ostream& stream, const std::vector<T>& object) {
-    stream << "[";
-    for (std::size_t i = 0; i < object.size(); ++i) {
-        stream << object[i];
-        if (i < object.size() - 1) {
-            stream << " ";
-        }
-    }
-    stream << "]";
-    return stream;
-}
 
 struct NegativeTestParams {
     std::vector<InferenceEngine::SizeVector> inputsDimensions;

@@ -5,9 +5,10 @@
         <value>GPU</value>
     </devices>
     <models>
-        <value>public/vgg16/FP32/vgg16.xml</value>
-        <value>public/mtcnn-r/FP32/mtcnn-r.xml</value>
-        <value>public/mobilenet-ssd/FP32/mobilenet-ssd.xml</value>
-        <value>public/ssd300/FP32/ssd300.xml</value>
+        <!--Models with FP32 precision-->
+        <model name="vgg16" precision="FP32" source="omz" />
+        <model name="mtcnn-r" precision="FP32" source="omz" />
+        <model name="mobilenet-ssd" precision="FP32" source="omz" />
+        <model name="ssd300" precision="FP32" source="omz" />
     </models>
 </attributes>

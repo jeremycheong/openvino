@@ -1,20 +1,9 @@
-"""
- Copyright (C) 2018-2020 Intel Corporation
+# Copyright (C) 2018-2021 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
-      http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
-"""
 import ast
 import logging as log
+import re
 from collections import defaultdict
 from copy import copy
 
@@ -36,6 +25,7 @@ def restore_edges(graph: Graph, get_edges: callable):
     n1 --> n2 edge with attributes attrs.
     It is possible that two nodes n1 and n2 have more than one n1 --> n2 edges, so the resulting graph is Graph.
     """
+    used_tensors = set()
     for node in list(graph.nodes()):
         edges = get_edges(Node(graph, node))
         for u, v, d in edges:
@@ -48,7 +38,10 @@ def restore_edges(graph: Graph, get_edges: callable):
                     ' and '.join(undefined) +
                     refer_to_faq_msg(25)
                 )
+            used_tensors.add(u)
+
         graph.add_edges_from(edges)
+    return used_tensors
 
 
 def remove_control_dependency_inputs(graph: Graph):
@@ -57,6 +50,8 @@ def remove_control_dependency_inputs(graph: Graph):
     :param graph: graph to operate on 
     """
     for _, attrs in list(graph.nodes(data=True)):
+        if 'pb' not in attrs:
+            continue
         pb = attrs['pb']
         ind = 0
         while ind < len(pb.input):
@@ -130,6 +125,22 @@ def attr_getter(node: Node, name: str):
     return None
 
 
+def bool_to_str(node: Node, attr: str):
+    # Function converts 0/1 or bool False/True or '0'/'1' values to str 'false'/'true' which need to appear in IR
+    attribute_name = node.soft_get(attr, None)
+    if attribute_name is None:
+        return None
+    if isinstance(attribute_name, bool):
+        return str(attribute_name).lower()
+    elif attribute_name in [0, 1]:
+        return str(bool(attribute_name)).lower()
+    elif attribute_name in ['0', '1']:
+        return str(bool(int(attribute_name))).lower()
+    else:
+        raise Error('Wrong value {} for boolean attribute {} in node {}'.format(
+            attribute_name, attr, node.soft_get('name')))
+
+
 def kernel_getter(node: Node, dim: int):
     if node.kind == 'op' and node.op in ['Conv2D', 'DepthwiseConv2dNative', 'Deconv2D']:
         if node.has('kernel_spatial'):
@@ -149,7 +160,7 @@ def node_defs_to_str(node: Node):
 
 
 def update_ie_fields(attrs: dict, ir_version = None):
-    ir_v4_attrs = {
+    ir_v10_attrs = {
         'IE': [(
             'layer',
             [('id', lambda node: node.node), 'name', 'type', 'version'],
@@ -307,336 +318,10 @@ def update_ie_fields(attrs: dict, ir_version = None):
                 '@consts'])]
     }
 
-    ir_v3_attrs = {
-        'IE': [(
-            'layer',
-            [('id', lambda node: node.node), 'name', 'precision', 'type', 'version'],
-            [
-                (
-                    'data',
-                    [
-                        'auto_pad',
-                        'epsilon',
-                        'min',
-                        'max',
-                        ('axis', lambda node: attr_getter(node, 'axis')),
-                        'tiles',
-                        ('dim', lambda node: attr_getter(node, 'dim')),
-                        'num_axes',
-                        ('pool-method', 'pool_method'),
-                        'group',
-                        ('rounding-type', 'rounding_type'),
-                        ('exclude-pad', 'exclude_pad'),
-                        'operation',
-                        'out-size',
-                        'power',
-                        'shift',
-                        'alpha',
-                        'beta',
-                        'coords',
-                        'classes',
-                        'num',
-                        ('local-size', 'local_size'),
-                        'region',
-                        'knorm',
-                        'bias',
-
-                        'num_classes',
-                        'keep_top_k',
-                        'variance_encoded_in_target',
-                        'code_type',
-                        'share_location',
-                        'nms_threshold',
-                        'confidence_threshold',
-                        'background_label_id',
-                        'top_k',
-                        'eta',
-                        'visualize',
-                        'visualize_threshold',
-                        'save_file',
-                        'output_directory',
-                        'output_name_prefix',
-                        'output_format',
-                        'label_map_file',
-                        'name_size_file',
-                        'num_test_image',
-                        'prob',
-                        'resize_mode',
-                        'height',
-                        'width',
-                        'height_scale',
-                        'width_scale',
-                        'pad_mode',
-                        'pad_value',
-                        'interp_mode',
-
-                        'img_size',
-                        'img_h',
-                        'img_w',
-                        'step',
-                        'step_h',
-                        'step_w',
-                        ('offset', lambda node: attr_getter(node, 'offset')),
-                        'variance',
-                        'flip',
-                        'clip',
-                        ('min_size', lambda node: attr_getter(node, 'min_size')),
-                        ('max_size', lambda node: attr_getter(node, 'max_size')),
-                        ('aspect_ratio', lambda node: attr_getter(node, 'aspect_ratio')),
-                        'decrease_label_id',
-                        'normalized',
-                        'scale_all_sizes',
-
-                        ('type', 'norm_type'),
-                        'eps',
-                        'eps_mode',
-                        'across_spatial',
-                        'channel_shared',
-
-                        'negative_slope',
-                        'engine',
-
-                        'num_filter',
-                        ('type', 'sample_type'),
-                        ('order', lambda node: attr_getter(node, 'order')),
-
-                        'pooled_h',
-                        'pooled_w',
-                        'spatial_scale',
-
-                        'cls_threshold',
-                        'max_num_proposals',
-                        'iou_threshold',
-                        'min_bbox_size',
-                        'feat_stride',
-                        'pre_nms_topn',
-                        'post_nms_topn',
-                        ('type', lambda node: node['filler_type'] if node.has('filler_type') else None),
-                        ('value', lambda node: node['filler_value'] if node.has('filler_value') else None),
-                        ('output',
-                         lambda node: node.output_shape[node.channel_dims][0] if node.has('output_shape') and node.has(
-                             'channel_dims') else None),
-                        ('input_nodes_names', lambda node: ' '.join(node['input_nodes_names']) if node.has(
-                            'input_nodes_names') else None),
-                        ('output_tensors_names', lambda node: ' '.join(node['output_tensors_names']) if node.has(
-                            'output_tensors_names') else None),
-                        ('real_input_dims', lambda node: ';'.join([' '.join(map(str, shape)) for shape in
-                                                                   node['real_input_dims']])
-                        if node.has('real_input_dims') else None),
-                        ('protobuf', lambda node: node_defs_to_str(node) if node.has('pbs') else None),
-                        {'custom_attributes': None},
-                        ('strides', lambda node: ','.join(map(str, node['stride'][node.spatial_dims])) if node.has_valid('stride') else None),
-                        ('kernel', lambda node: ','.join(map(str, node['kernel_spatial'])) if node.has_valid(
-                            'kernel_spatial') else None),
-                        ('dilations', lambda node: ','.join(map(str, node['dilation'][node.spatial_dims])) if node.has_valid('dilation') else None),
-
-                        ('pads_begin', lambda node: ','.join(map(str, get_backend_pad(node.pad, node.spatial_dims, 0))) if node.has_valid('pad') else None),
-                        ('pads_end', lambda node: ','.join(map(str, get_backend_pad(node.pad, node.spatial_dims, 1))) if node.has_valid('pad') else None),
-
-                        ('scale', lambda node: attr_getter(node, 'scale')),
-                        'crop_width',
-                        'crop_height',
-                        'write_augmented',
-                        'max_multiplier',
-                        'augment_during_test',
-                        'recompute_mean',
-                        'write_mean',
-                        'mean_per_pixel',
-                        'mode',
-                        'bottomwidth',
-                        'bottomheight',
-                        'chromatic_eigvec',
-                        'kernel_size',
-                        'max_displacement',
-                        'stride_1',
-                        'stride_2',
-                        'single_direction',
-                        'do_abs',
-                        'correlation_type',
-                        'antialias',
-                        'resample_type',
-                        'factor',
-                        'coeff',
-                        ('ratio', lambda node: attr_getter(node, 'ratio')),
-                        'size',
-                    ],
-                    []),
-                '@ports',
-                '@consts'])]
-    }
-
-    ir_v2_attrs = {
-        'IE': [(
-            'layer',
-            [('id', lambda node: node.node), 'name', 'precision', 'type', 'version'],
-            [
-                (
-                    'data',
-                    [
-                        'auto_pad',
-                        'epsilon',
-                        'min',
-                        'max',
-                        ('axis', lambda node: attr_getter(node, 'axis')),
-                        'tiles',
-                        ('dim', lambda node: attr_getter(node, 'dim')),
-                        'num_axes',
-                        ('pool-method', 'pool_method'),
-                        'group',
-                        ('rounding-type', 'rounding_type'),
-                        ('exclude-pad', 'exclude_pad'),
-                        'operation',
-                        'out-size',
-                        'power',
-                        'shift',
-                        'alpha',
-                        'beta',
-                        'coords',
-                        'classes',
-                        'num',
-                        ('local-size', 'local_size'),
-                        'region',
-                        'knorm',
-
-                        'num_classes',
-                        'keep_top_k',
-                        'variance_encoded_in_target',
-                        'code_type',
-                        'share_location',
-                        'nms_threshold',
-                        'confidence_threshold',
-                        'background_label_id',
-                        'top_k',
-                        'eta',
-                        'visualize',
-                        'visualize_threshold',
-                        'save_file',
-                        'output_directory',
-                        'output_name_prefix',
-                        'output_format',
-                        'label_map_file',
-                        'name_size_file',
-                        'num_test_image',
-                        'prob',
-                        'resize_mode',
-                        'height',
-                        'width',
-                        'height_scale',
-                        'width_scale',
-                        'pad_mode',
-                        'pad_value',
-                        'interp_mode',
-
-                        'img_size',
-                        'img_h',
-                        'img_w',
-                        'step',
-                        'step_h',
-                        'step_w',
-                        ('offset', lambda node: attr_getter(node, 'offset')),
-                        'variance',
-                        'flip',
-                        'clip',
-                        ('min_size', lambda node: attr_getter(node, 'min_size')),
-                        ('max_size', lambda node: attr_getter(node, 'max_size')),
-                        ('aspect_ratio', lambda node: attr_getter(node, 'aspect_ratio')),
-                        'decrease_label_id',
-                        'normalized',
-                        'scale_all_sizes',
-
-                        ('type', 'norm_type'),
-                        'eps',
-                        'across_spatial',
-                        'channel_shared',
-
-                        'negative_slope',
-                        'engine',
-
-                        'num_filter',
-                        ('type', 'sample_type'),
-                        ('order', lambda node: attr_getter(node, 'order')),
-
-                        'pooled_h',
-                        'pooled_w',
-                        'spatial_scale',
-
-                        'cls_threshold',
-                        'max_num_proposals',
-                        'iou_threshold',
-                        'min_bbox_size',
-                        'feat_stride',
-                        'pre_nms_topn',
-                        'post_nms_topn',
-                        ('type', lambda node: node['filler_type'] if node.has('filler_type') else None),
-                        ('value', lambda node: node['filler_value'] if node.has('filler_value') else None),
-                        ('output',
-                         lambda node: node.output_shape[node.channel_dims][0] if node.has('output_shape') and node.has(
-                             'channel_dims') else None),
-                        ('input_nodes_names', lambda node: ' '.join(node['input_nodes_names']) if node.has(
-                            'input_nodes_names') else None),
-                        ('output_tensors_names', lambda node: ' '.join(node['output_tensors_names']) if node.has(
-                            'output_tensors_names') else None),
-                        ('real_input_dims', lambda node: ';'.join([' '.join(map(str, shape)) for shape in
-                                                                   node['real_input_dims']])
-                        if node.has('real_input_dims') else None),
-                        ('protobuf', lambda node: node_defs_to_str(node) if node.has('pbs') else None),
-                        {'custom_attributes': None},
-                        spatial_getter('stride-x', 'stride', 1),  # TODO check whether it is really X or Y
-                        spatial_getter('stride-y', 'stride', 0),  # TODO check whether it is really X or Y
-                        spatial_getter('kernel-x', 'window', 1),  # TODO check whether it is really X or Y
-                        spatial_getter('kernel-y', 'window', 0),  # TODO check whether it is really X or Y
-
-                        ('kernel-x', lambda node: kernel_getter(node, 1)),  # TODO check whether it is really X or Y
-                        ('kernel-y', lambda node: kernel_getter(node, 0)),  # TODO check whether it is really X or Y
-                        spatial_getter('dilation-x', 'dilation', 1),  # TODO check whether it is really X or Y
-                        spatial_getter('dilation-y', 'dilation', 0),  # TODO check whether it is really X or Y
-                        spatial_getter('pad-x', 'pad', 1, lambda x: x[0]),  # TODO check whether it is really X or Y
-                        spatial_getter('pad-y', 'pad', 0, lambda x: x[0]),  # TODO check whether it is really X or Y
-                        spatial_getter('pad-r', 'pad', 1, lambda x: x[1]),  # TODO check whether it is really X or Y
-                        spatial_getter('pad-b', 'pad', 0, lambda x: x[1]),  # TODO check whether it is really X or Y
-                        ('scale', lambda node: attr_getter(node, 'scale')),
-                        ('stride', lambda node: attr_getter(node, 'stride')),
-                        'crop_width',
-                        'crop_height',
-                        'write_augmented',
-                        'max_multiplier',
-                        'augment_during_test',
-                        'recompute_mean',
-                        'write_mean',
-                        'mean_per_pixel',
-                        'mode',
-                        'bottomwidth',
-                        'bottomheight',
-                        'chromatic_eigvec',
-                        'kernel_size',
-                        'max_displacement',
-                        'stride_1',
-                        'stride_2',
-                        'single_direction',
-                        'do_abs',
-                        'correlation_type',
-                        'antialias',
-                        'resample_type',
-                        'factor',
-                        'coeff',
-                        ('ratio', lambda node: attr_getter(node, 'ratio')),
-                        'size',
-                    ],
-                    []),
-                '@ports',
-                '@consts'])]
-    }
-
     ir_version_mapping = {
-        # Default behaviour is IR V4 attributes
-        None: ir_v4_attrs,
-        10: ir_v4_attrs,
-        7: ir_v4_attrs,
-        6: ir_v3_attrs,
-        5: ir_v3_attrs,
-        4: ir_v3_attrs,
-        3: ir_v3_attrs,
-        2: ir_v2_attrs
+        # Default behaviour is IR V10 attributes
+        None: ir_v10_attrs,
+        10: ir_v10_attrs,
     }
 
     if ir_version not in ir_version_mapping.keys():
@@ -749,7 +434,7 @@ def extract_node_attrs(graph: Graph, extractor: callable):
                 raise Error(
                     'Unexpected exception happened during extracting attributes for node {}.' +
                     '\nOriginal exception message: {}',
-                    new_attrs['name'] if 'name' in new_attrs else '<UNKNOWN>',
+                    node,
                     str(e)
                 ) from e
         if supported:
@@ -766,46 +451,46 @@ def extract_node_attrs(graph: Graph, extractor: callable):
     return graph
 
 
-def extract_port_from_string(node_name: str):
-    """
-    Extracts port and node name from string
-
-    Raises if node name was not provided in the expected format:
-    NODE:OUT_PORT
-        or
-    IN_PORT:NODE
-
-    :param node_name: string value provided by user
-    :return: node name, input port and output port
-    """
-    parts = node_name.split(':')
-    if len(parts) > 2:
-        raise Error("Please provide only one port number for {}. Expected format is NODE:OUT_PORT or IN_PORT:NODE, "
-                    "where IN_PORT and OUTPUT_PORT are integers".format(node_name))
-    if len(parts) == 1:
-        return node_name, None, None
-    else:
-        in_port, out_port, name = None, None, None
-        try:
-            in_port, name = int(parts[0]), parts[1]
-        except ValueError:
-            try:
-                out_port, name = int(parts[1]), parts[0]
-            except ValueError:
-                raise Error("Non integer port number in {}. Expected format is NODE:OUT_PORT or IN_PORT:NODE, where "
-                            "IN_PORT and OUTPUT_PORT are integers".format(node_name))
-        return name, in_port, out_port
-
-
-def get_node_id_with_ports(graph: Graph, name: str):
+def get_node_id_with_ports(graph: Graph, node_name: str, skip_if_no_port=True):
     """
     Extracts port and node ID out of user provided name
     :param graph: graph to operate on
-    :param name: user provided node name
+    :param node_name: user provided node name
     :return: node ID, direction of port ('in', 'out', 'port') and port number or None
     """
-    node_name, in_port, out_port = extract_port_from_string(name)
-    node_id = graph.get_node_id_by_name(node_name)
+    node_names = [n.soft_get('name', n.id) for n in graph.get_op_nodes()]
+    found_names = []
+    for name in node_names:
+        regexp = r'(\d*:)?(' + name + r')(:\d*)?'
+        match = re.search(regexp, node_name)
+        if match and match.group() == node_name:
+            in_port = None
+            out_port = None
+            if match.group(1) and match.group(3):
+                log.warning('Skipping the case with both in and out port specified, only one port can be specified')
+                continue
+            node = Node(graph, graph.get_node_id_by_name(name))
+            if match.group(1):
+                in_port = int(match.group(1).replace(':', ''))
+                if skip_if_no_port and in_port not in [e['in'] for e in node.in_edges().values()]:
+                    # skip found node if it doesn't have such port number
+                    continue
+            if match.group(3):
+                out_port = int(match.group(3).replace(':', ''))
+                if skip_if_no_port and out_port not in [e['out'] for e in node.out_edges().values()]:
+                    # skip found node if it doesn't have such port number
+                    continue
+
+            found_names.append((in_port, out_port, name))
+    if len(found_names) == 0:
+        raise Error('No node with name {}'.format(node_name))
+    if len(found_names) > 1:
+        raise Error('Name collision was found, there are several nodes for mask "{}": {}. '
+                    'If your intention was to specify port for node, please instead specify node names connected to '
+                    'this port. If your intention was to specify the node name, please add port to the node '
+                    'name'.format(node_name, [name for _, _, name in found_names]))
+    in_port, out_port, name = found_names[0]
+    node_id = graph.get_node_id_by_name(name)
     if in_port is not None:
         direction = 'in'
         port = in_port
@@ -1052,6 +737,24 @@ def add_output_ops(graph: Graph, user_defined_outputs: dict, inputs: dict = None
                 else:
                     sinks.append(add_opoutput(graph, node, 0))
     return sinks
+
+
+def add_outputs_identity(graph: Graph, outputs: list, add_edge: callable, params: dict = {}):
+    """
+    Adds identity nodes marked with needs_removal=True attribute after each output of the graph.
+    These nodes are used for storing tensor names information at the incoming edge
+    and are removed with the OutputCut transformation.
+    :param graph: graph to operate on.
+    :param outputs: list of output node ids.
+    :param add_edge: method which adds an edge to the graph with the following signature:
+     f(src_node_id: str, dst_node_id: str, in_port: int).
+    :param params: extra parameters for add_edge method.
+    """
+    for output in outputs:
+        fake_node_name = graph.unique_id(output)
+        graph.add_node(fake_node_name, name=fake_node_name, identity=True, kind='op', op='Identity',
+                       infer=None, needs_removal=True, symbol_dict={'op': 'Identity'})
+        add_edge(graph, output, fake_node_name, **params)
 
 
 def set_is_input(graph: Graph, placeholders: list, is_input: bool):
@@ -1419,7 +1122,6 @@ class CaffePythonFrontExtractorOp:
         for a in attrs:
             if a not in op_cls.supported_attrs(op_cls):
                 log.error('Parameter {} is not recognised, please check correctness.\n List of supported parameters is: {}'.format(a, op_cls.supported_attrs(op_cls)), extra={'is_warning':True})
-
 
     @classmethod
     def class_type(cls):

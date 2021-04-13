@@ -1,3 +1,7 @@
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
+//
+
 #pragma once
 
 #include <iostream>
@@ -33,6 +37,7 @@ size_t getVmSizeInKB();
 size_t getVmPeakInKB();
 size_t getVmRSSInKB();
 size_t getVmHWMInKB();
+size_t getThreadsNum();
 
 template<typename Function, typename ... Args>
 int run_in_processes(const int &numprocesses, Function const &function, Args ... args) {
@@ -70,3 +75,6 @@ inline void run_in_threads(const int &numthreads, Function const &function, Args
     }
     v.clear();
 }
+
+void auto_expand_env_vars(std::string &input);
+std::string expand_env_vars(const std::string &input);

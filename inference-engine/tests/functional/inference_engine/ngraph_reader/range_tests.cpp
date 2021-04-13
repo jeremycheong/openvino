@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -6,7 +6,7 @@
 #include "ngraph_reader_tests.hpp"
 TEST_F(NGraphReaderTests, ReadRangeNetwork) {
     std::string model = R"V0G0N(
-<net name="Range" version="10">
+<net name="Network" version="10">
     <layers>
         <layer id="0" name="in1" type="Parameter" version="opset1">
             <data element_type="f32" shape="1,2,12"/>
@@ -19,21 +19,21 @@ TEST_F(NGraphReaderTests, ReadRangeNetwork) {
             </output>
         </layer>
         <layer id="4" name="start" type="Const" version="opset1">
-            <data offset="0" size="8"/>
+           <data element_type="i64" offset="0" shape="" size="8"/>
             <output>
                 <port id="0" precision="I64">
                 </port>
             </output>
         </layer>
         <layer id="5" name="stop" type="Const" version="opset1">
-            <data offset="8" size="8"/>
+            <data element_type="i64" offset="8" shape="" size="8"/>
             <output>
                 <port id="0" precision="I64">
                 </port>
             </output>
         </layer>
         <layer id="6" name="step" type="Const" version="opset1">
-            <data offset="16" size="8"/>
+            <data element_type="i64" offset="16" shape="" size="8"/>
             <output>
                 <port id="0" precision="I64">
                 </port>
@@ -99,7 +99,7 @@ TEST_F(NGraphReaderTests, ReadRangeNetwork) {
 </net>
 )V0G0N";
     std::string modelV5 = R"V0G0N(
-<net name="Range" version="5" precision="FP32" batch="1">
+<net name="Network" version="5" precision="FP32" batch="1">
     <layers>
         <layer id="0" name="in1" precision="FP32" type="Input">
             <output>

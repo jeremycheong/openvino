@@ -1,18 +1,5 @@
-"""
- Copyright (C) 2018-2020 Intel Corporation
-
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
-      http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
-"""
+# Copyright (C) 2018-2021 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 
 import collections
 import logging as log
@@ -64,14 +51,11 @@ def create_op_with_const_inputs(graph: Graph, op: callable, port_value_dict: Dic
     return node
 
 
-def squeeze_reshape_and_concat(start_nodes: list):
+def mark_squeeze_reshape_concat_before_detection_output(start_nodes: list):
     """
-    The function looks for Reshape ops after the 'start_nodes' with 4D output and remove the dimension with index 2
-    which should be equal to 1. This is a workaround to make tensor 3D so it's shape will not be transposed during the
-    IR generation. The problem arises when bounding boxes predictions are reshaped from [1, 1, 1, X] to
-    [1, X / 4, 1, 4]. The result tensor should not be transposed because after transpose it will have shape
-    [1, 4, X / 4, 1] and the concatenation over dimension with index 2 will produce incorrect tensor.
-    Also the function looks for Concat ops and change the concat dimension from 2 to 1.
+    The function looks for Reshape, Concat and Squeeze ops after the 'start_nodes' with 4D output and marks them with
+    proper attributes to infer them in original NHWC layout. This is a case of the TensorFlow Object Detection API
+    models for the SSD heads output which produces 4D tensor with bounding box deltas.
     :param start_nodes: list of nodes to start search from.
     :return: None
     """
@@ -80,34 +64,28 @@ def squeeze_reshape_and_concat(start_nodes: list):
     while len(q) != 0:
         cur_node = q.popleft()
         if cur_node.has_valid('type'):
-            if cur_node.type == 'DetectionOutput':  # do not go beyond the DetectionOutput node
+            if cur_node.soft_get('type') == 'DetectionOutput':  # do not go beyond the DetectionOutput node
                 continue
-            if cur_node.op == 'Reshape' and len(cur_node.out_node().shape) == 4:
-                log.debug("Found reshape op with 4D output {}".format(cur_node.id))
-                if cur_node.in_node(1).has_valid('value') and cur_node.in_node(1).value is not None:
-                    new_shape = cur_node.in_node(1).value
-                    assert new_shape[2] == 1
-                    new_shape = np.delete(new_shape, 2)
-                    cur_node.in_node(1).value = new_shape
-                    cur_node.in_node(1).shape = np.array(new_shape.shape, dtype=np.int64)
-                    # run infer function once again
-                    cur_node.infer(cur_node)
-                else:
-                    log.warning("The reshape size is not defined!")
-            if cur_node.type == 'Concat' and len(cur_node.out_node().shape) == 4:
-                log.debug("Found Concat op with 4D output {}".format(cur_node.id))
-                cur_node.axis = 1
-                # run infer function once again
-                cur_node.infer(cur_node)
-                if cur_node.out_port(0).get_destination().node.op == 'Squeeze':
-                    # remove Squeeze node after the Concat
-                    squeeze_consumer = cur_node.out_port(0).get_destination().node.out_port(0).get_destination()
-                    cur_node.out_port(0).get_connection().set_destination(squeeze_consumer)
+            # the input to Reshape comes from Convolution so it will be converted from NCHW to NHWC layout in the
+            # InsertLayoutPropagationTransposes transformation. But the output should be kept in the original layout
+            if cur_node.soft_get('type') == 'Reshape' and len(cur_node.out_port(0).data.get_shape()) == 4:
+                mark_output_as_in_correct_layout(cur_node, 0)
 
-        out_node_size = len(cur_node.out_nodes())
-        for ind in range(out_node_size):
-            node = cur_node.out_node(ind)
-            q.append(node)
+            # Concat should be inferred in the original layout so the input with concatenation axis should not be
+            # updated from NHWC to NCHW layout
+            if cur_node.soft_get('type') == 'Concat' and len(cur_node.out_port(0).data.get_shape()) == 4:
+                cur_node.in_port(1).__setattr__('input_permutation', None)
+                cur_node['nchw_layout'] = True
+                cur_node.out_node(0)['nchw_layout'] = True
+
+            # Squeeze should be inferred in the original layout so the input with squeeze axis should not be updated
+            # from NHWC to NCHW layout. The input is marked as in correct layout to prevent from inserting Transpose
+            # from NHWC to NCHW.
+            if cur_node.soft_get('type') == 'Squeeze' and len(cur_node.in_port(0).data.get_shape()) == 4:
+                cur_node.in_port(1).__setattr__('input_permutation', None)
+                mark_input_as_in_correct_layout(cur_node, 0)
+
+        [q.append(port.node) for port in cur_node.out_port(0).get_destinations()]
 
 
 def add_convolution_to_swap_xy_coordinates(graph: Graph, input_node: Node, coordinates_size: int):
@@ -165,7 +143,7 @@ def add_convolution_to_swap_xy_coordinates(graph: Graph, input_node: Node, coord
 
 
 def add_fake_background_loc(graph: Graph, input_node: Node):
-    """
+    r"""
     DetectionOutput layer expects that box coordinates contains coordinates of boxes for the "background" class also,
     but in the TensorFlow\* Object Detection API the tensor contains information about real object classes only.
     The function copies a slice of the output data of the node 'input_node' and then concats it to the beginning of the

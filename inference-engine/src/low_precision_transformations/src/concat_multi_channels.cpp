@@ -1,396 +1,319 @@
-﻿// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "low_precision_transformations/concat_multi_channels.hpp"
+#include "low_precision/concat_multi_channels.hpp"
 
-#include <details/ie_cnn_network_tools.h>
-#include <ie_common.h>
-
-#include <algorithm>
-#include <blob_factory.hpp>
-#include <details/caseless.hpp>
+#include <queue>
 #include <memory>
 #include <string>
 #include <unordered_map>
-#include <utility>
 #include <vector>
 
-#include "cnn_network_impl.hpp"
-#include "ie_util_internal.hpp"
-#include "network_serializer.h"
+#include <ngraph/ngraph.hpp>
+#include <ngraph/opsets/opset1.hpp>
 
-#include "low_precision_transformations/common/ie_lpt_exception.hpp"
-#include "low_precision_transformations/network_helper.hpp"
-#include "low_precision_transformations/quantization_details.hpp"
+#include "low_precision/common/fake_quantize_dequantization.hpp"
+#include "low_precision/common/dequantization_op.hpp"
+#include "low_precision/common/ie_lpt_exception.hpp"
+#include "low_precision/common/subgraph.hpp"
+#include "low_precision/network_helper.hpp"
 
-using namespace InferenceEngine;
-using namespace InferenceEngine::details;
+namespace ngraph {
+namespace pass {
+namespace low_precision {
 
-size_t getQuantizationLevel(const std::vector<CNNLayerPtr>& fakeQuantizeLayers) {
-    size_t quantizationLevels = 0lu;
-    for (int i = 0; i < fakeQuantizeLayers.size(); i++) {
-        const CNNLayerPtr fakeQuantizeLayer = fakeQuantizeLayers[i];
-        if (fakeQuantizeLayer->type != "FakeQuantize") {
-            THROW_IE_EXCEPTION << "not expected layer type " << fakeQuantizeLayer->type;
-        }
-
-        const QuantizationDetails& quantizationDetails = QuantizationDetails::getDetails(*fakeQuantizeLayer);
-        if (!QuantizationDetails::isSupportedLevel(quantizationDetails.levels)) {
-            continue;
-        }
-        if (quantizationLevels == 0lu) {
-            quantizationLevels = quantizationDetails.levels;
-        } else if (quantizationLevels != quantizationDetails.levels) {
-            THROW_IE_EXCEPTION << "different quantization levels " << quantizationLevels << " are not supported";
-        }
-    }
-
-    return quantizationLevels;
-}
-
-bool isCascade(const std::vector<CNNLayerPtr>& concatLayers) {
-    for (size_t index = 0ul; index < (concatLayers.size() - 1); ++index) {
-        const CNNLayerPtr childConcatLayer = concatLayers[index];
-        const CNNLayerPtr parentConcatLayer = concatLayers[index + 1];
-        std::vector<CNNLayerPtr> parents =
-            CNNNetworkHelper::getParentsRecursivelyExceptTypes(*childConcatLayer, {"Pooling"});
-
-        bool parentConcatLayerWasFound = false;
-        for (const CNNLayerPtr& parent : parents) {
-            if (parent->name == parentConcatLayer->name) {
-                parentConcatLayerWasFound = true;
-                break;
-            }
-        }
-
-        if (!parentConcatLayerWasFound) {
-            return false;
-        }
-    }
-    return true;
-}
-
-bool isMultiChannel(const std::vector<CNNLayerPtr>& concatLayers) {
-    for (const CNNLayerPtr& concat : concatLayers) {
-        const std::vector<CNNLayerPtr> children = CNNNetworkHelper::getChildrenRecursivelyExceptTypes(*concat, {"Pooling"});
-        if (CNNNetworkHelper::IsChild(children, {"Convolution"})) {
-            return false;
-        }
-    }
-    return true;
-}
-
-bool ConcatMultiChannelsTransformation::getQuantizeLayers(
-    CNNLayerPtr layer,
-    std::vector<std::string>& childNameOurAfterQuantizeLayers,
-    std::vector<CNNLayerPtr>& quantizeLayers,
-    std::vector<std::vector<CNNLayerPtr>>& intermediateLayers,
-    std::vector<CNNLayerPtr>& concatLayers,
-    std::string childName,
-    std::vector<CNNLayerPtr>& sideOutputLayers,
-    std::vector<std::string>& childrenNameSideOutputLayers) {
-    if (!CaselessEq<std::string>()(layer->type, "FakeQuantize") &&
-        !CaselessEq<std::string>()(layer->type, "Quantize")) {
-        do {
-            if (CaselessEq<std::string>()(layer->type, "Pooling")) {
-                intermediateLayers.back().push_back(layer);
-                std::vector<CNNLayerPtr> children = CNNNetworkHelper::getChildrenRecursivelyExceptTypes(*layer, {"Pooling"});
-                std::string concatName;
-                for (const CNNLayerPtr& child : children) {
-                    if (child->type == "Concat") {
-                        if (!concatName.empty()) {
-                            THROW_IE_EXCEPTION << "several concat children layers are not supported";
-                        }
-                        concatName = child->name;
-                    }
-                }
-
-                childName = concatName;
-                layer = CNNNetworkHelper::getParent(*layer, 0);
-            } else if (CaselessEq<std::string>()(layer->type, "Concat")) {
-                concatLayers.push_back(layer);
-
-                if (layer->outData[0]->getInputTo().size() != 1) {
-                    sideOutputLayers.push_back(layer);
-                    childrenNameSideOutputLayers.push_back(childName);
-                }
-                int size = layer->insData.size();
-                childName = layer->name;
-                for (int i = 0; i < size; i++) {
-                    CNNLayerPtr layer1 = CNNNetworkHelper::getParent(*layer, i);
-                    intermediateLayers.push_back({});
-                    if (!getQuantizeLayers(
-                        layer1,
-                        childNameOurAfterQuantizeLayers,
-                        quantizeLayers,
-                        intermediateLayers,
-                        concatLayers,
-                        childName,
-                        sideOutputLayers,
-                        childrenNameSideOutputLayers)) {
-                        return false;
-                    }
-                }
-                return true;
-            } else {
+bool ConcatMultiChannelsTransformation::isMultiChannel(const std::vector<std::shared_ptr<ngraph::opset1::Concat>>& concatLayers) const noexcept {
+    for (const std::shared_ptr<ngraph::opset1::Concat>& concat : concatLayers) {
+        const std::vector<std::shared_ptr<ngraph::Node>> children = getChildrenRecursivelyExceptPrecisionPreserved(concat);
+        for (const std::shared_ptr<ngraph::Node>& child : children) {
+            if (is_type<ngraph::opset1::Convolution>(child.get())) {
                 return false;
             }
-        } while (!CaselessEq<std::string>()(layer->type, "FakeQuantize") &&
-                 !CaselessEq<std::string>()(layer->type, "Quantize"));
+        }
     }
-
-    childNameOurAfterQuantizeLayers.push_back(childName);
-    quantizeLayers.push_back(layer);
     return true;
 }
 
-void ConcatMultiChannelsTransformation::transform(TransformationContext& context, CNNLayer& concat) const {
+void ConcatMultiChannelsTransformation::registerMatcherIn(GraphRewrite& pass, TransformationContext& context) const {
+    addSingleNodePattern<opset1::Concat>(pass, context);
+}
+
+bool ConcatMultiChannelsTransformation::transform(TransformationContext& context, ngraph::pattern::Matcher &m) const {
+    std::shared_ptr<ngraph::opset1::Concat> concat = ngraph::as_type_ptr<ngraph::opset1::Concat>(m.get_match_root());
     if (!canBeTransformed(context, concat)) {
-        return;
+        return false;
     }
 
-    if (!CaselessEq<std::string>()(concat.type, "Concat")) {
-        THROW_IE_EXCEPTION << "layer type '" << concat.name << "' is not correct";
+    ngraph::pass::low_precision::Subgraph subgraph(layerTransformationsManager);
+    std::unordered_set<std::string> handledLayers;
+    if (!subgraph.fillSubgraphForConcat(concat, handledLayers)) {
+        return false;
     }
 
-    if ((concat.insData.size() < 2)) {
-        THROW_IE_EXCEPTION << "layer inputs '" << concat.insData.size() << "' is not correct";
+    if (subgraph.quantizationLayers.empty() || isHandled(context, subgraph.quantizationLayers)) {
+        return false;
     }
 
-    if (concat.GetParamAsUInt("axis", 1) != 1) {
-        return;
+    if (!isMultiChannel(subgraph.concatLayers)) {
+        ConcatTransformation::transform(context, m);
+        return false;
     }
 
-    std::vector<CNNLayerPtr> children = CNNNetworkHelper::getChildren(concat);
-    if (CNNNetworkHelper::IsChild(children, {"Concat"}, {"Pooling"})) {
-        return;
-    }
-
-    std::vector<CNNLayerPtr> quantizeLayers;
-    std::vector<std::vector<CNNLayerPtr>> intermediateLayers;
-    std::vector<CNNLayerPtr> concatLayers;
-    std::vector<std::string> childNameOurAfterQuantizeLayers;
-    std::vector<CNNLayerPtr> sideOutputLayers;
-    std::vector<std::string> childrenNameSideOutputLayers;
-    const auto inputDataNumber = concat.insData.size();
-    for (size_t index = 0lu; index < inputDataNumber; index++) {
-        DataPtr quantizeOnData = concat.insData[index].lock();
-        if (quantizeOnData == nullptr) {
-            THROW_IE_EXCEPTION << "input is absent";
-        }
-        auto parentLayer = quantizeOnData->getCreatorLayer().lock();
-        intermediateLayers.push_back({});
-        if (!getQuantizeLayers(
-            parentLayer,
-            childNameOurAfterQuantizeLayers,
-            quantizeLayers,
-            intermediateLayers,
-            concatLayers,
-            concat.name,
-            sideOutputLayers,
-            childrenNameSideOutputLayers)) {
-            return;
-        }
-    }
-    concatLayers.insert(concatLayers.begin(), std::make_shared<CNNLayer>(concat));
-
-    if (quantizeLayers.empty()) {
-        return;
-    }
-
-    for (const CNNLayerPtr& quantizeLayer : quantizeLayers) {
-        if (!QuantizationDetails::outputLayoutIsSupported(*quantizeLayer)) {
-            return;
-        }
-    }
-
-    if ((!isCascade(concatLayers)) || (!isMultiChannel(concatLayers))) {
-        ConcatTransformation::transform(context, concat);
-        return;
-    }
-
-    // TODO: check if precisions are different and return
-    std::vector<std::pair<CNNLayerPtr, std::vector<CNNLayerPtr>>> fakeQuantizeForConcatLayers;
-    const DataPrecision dataPrecision = getDataPrecision(*quantizeLayers[0], QuantizationDetails::getDetails(*quantizeLayers[0]), false, false);
-    if (dataPrecision.precision == Precision::UNSPECIFIED) {
-        return;
-    }
-
-    std::vector<float> finalDequantizationScales;
-    std::vector<float> finalDequantizationShifts;
-    const auto parentsCount = quantizeLayers.size();
-
-    std::unordered_map<std::string, std::vector<float>> dequantizationScalesLayers;
-    std::unordered_map<std::string, std::vector<float>> dequantizationShiftsLayers;
-
-    for (int index = (concatLayers.size() - 1); index >= 0; --index) {
-        const CNNLayerPtr concatLayer = concatLayers[index];
-
-        const std::vector<CNNLayerPtr> parents =
-            CNNNetworkHelper::getParentsRecursivelyExceptTypes(*concatLayer, {"Pooling"});
-        for (const CNNLayerPtr& parent : parents) {
-            if ((parent->type != "FakeQuantize") && (parent->type != "Concat")) {
-                // TODO: handle
-                THROW_IE_EXCEPTION << "layer type '" << parent->type << "' not supported";
+    DataPrecision dataPrecision;
+    {
+        for (auto quantizationLayer : subgraph.quantizationLayers) {
+            std::shared_ptr<ngraph::opset1::FakeQuantize> fq = ngraph::as_type_ptr<ngraph::opset1::FakeQuantize>(quantizationLayer->shared_from_this());
+            if (!NetworkHelper::isQuantizeSupported(fq)) {
+                return false;
             }
-        }
 
-        for (const CNNLayerPtr fakeQuantizeLayer : parents) {
-            if (fakeQuantizeLayer->type != "FakeQuantize") {
+            const DataPrecision tmp = getDataPrecision(fq, QuantizationDetails::getDetails(fq), false);
+
+            if (dataPrecision.precision == ngraph::element::undefined) {
+                dataPrecision = tmp;
                 continue;
             }
 
-            const QuantizationDetails quantizationDetails = QuantizationDetails::getDetails(*fakeQuantizeLayer);
-            const size_t channelsCount = CNNNetworkHelper::getOutputChannelsCount(*fakeQuantizeLayer);
-            std::vector<float> dequantizationScales(channelsCount);
-            std::vector<float> dequantizationShifts(channelsCount);
-            for (size_t i = 0ul; i < channelsCount; ++i) {
-                dequantizationScales[i] = QuantizationDetails::isSupportedLevel(quantizationDetails.levels) ?
-                    (quantizationDetails.outputHighValues[0] - quantizationDetails.outputLowValues[0]) / (dataPrecision.max - dataPrecision.min) :
-                    1.0;
-
-                dequantizationShifts[i] = QuantizationDetails::isSupportedLevel(quantizationDetails.levels) ?
-                    (quantizationDetails.outputHighValues[0] - (quantizationDetails.outputHighValues[0] - quantizationDetails.outputLowValues[0]) *
-                    (dataPrecision.max / (dataPrecision.max - dataPrecision.min))) :
-                    0.f;
+            if ((tmp.precision != dataPrecision.precision) && (tmp.precision == ngraph::element::u8)) {
+                dataPrecision = tmp;
             }
-            checkAndUpdateDequantizationShiftWithZero(quantizationDetails, dequantizationShifts);
+        }
+    }
 
-            finalDequantizationScales.insert(finalDequantizationScales.end(), dequantizationScales.begin(), dequantizationScales.end());
-            finalDequantizationShifts.insert(finalDequantizationShifts.end(), dequantizationShifts.begin(), dequantizationShifts.end());
+    for (size_t i = 0; i < subgraph.quantizationLayers.size(); ++i) {
+        const std::shared_ptr<ngraph::opset1::FakeQuantize> fq = ngraph::as_type_ptr<ngraph::opset1::FakeQuantize>(subgraph.quantizationLayers[i]);
+        if (fq == nullptr) {
+            return false;
+        }
 
-            dequantizationScalesLayers[fakeQuantizeLayer->name] = dequantizationScales;
-            dequantizationShiftsLayers[fakeQuantizeLayer->name] = dequantizationShifts;
+        if (!NetworkHelper::isQuantizeSupported(fq)) {
+            return false;
+        }
+    }
 
-            if (QuantizationDetails::isSupportedLevel(quantizationDetails.levels)) {
-                CNNNetworkHelper::updateBlobs(*fakeQuantizeLayer, 3, dataPrecision.min);
-                CNNNetworkHelper::updateBlobs(*fakeQuantizeLayer, 4, dataPrecision.max);
+    std::unordered_map<std::string, ngraph::pass::low_precision::FakeQuantizeDequantization> dequantizations;
 
-                if (updatePrecisions) {
-                    CNNNetworkHelper::setOutDataPrecision(*fakeQuantizeLayer, dataPrecision.precision);
+    for (size_t i = 0; i < subgraph.quantizationLayers.size(); ++i) {
+        const std::shared_ptr<ngraph::Node>& fakeQuantizeLayer = subgraph.quantizationLayers[i];
 
-                    const std::vector<CNNLayerPtr>& intermediateLayersList = intermediateLayers[index];
-                    for (const CNNLayerPtr intermediateLayer : intermediateLayersList) {
-                        CNNNetworkHelper::setOutDataPrecision(*intermediateLayer, dataPrecision.precision);
-                    }
+        std::shared_ptr<ngraph::opset1::FakeQuantize> fq = ngraph::as_type_ptr<ngraph::opset1::FakeQuantize>(fakeQuantizeLayer->shared_from_this());
+        assert(fq);
+
+        auto newFakeQuantize = NetworkHelper::fuseConvert(fq);
+        if (newFakeQuantize != nullptr) {
+            fq = newFakeQuantize;
+        }
+
+        newFakeQuantize = NetworkHelper::composeFakeQuantize(fq);
+        if (newFakeQuantize != nullptr) {
+            fq = newFakeQuantize;
+        }
+
+        const DataPrecision currentDataPrecision = getDataPrecision(fq, QuantizationDetails::getDetails(fq), false);
+        const QuantizationDetails quantizationDetails = QuantizationDetails::getDetails(fq);
+
+        // 1. get data for dequantization. Dequantization data will be used several times later.
+        const FakeQuantizeDequantization fakeQuantizeDequantization = ngraph::pass::low_precision::NetworkHelper::createDequantizationFromFakeQuantize(
+            fq,
+            dataPrecision.precision,
+            dataPrecision.min,
+            dataPrecision.max,
+            dataPrecision.precision == currentDataPrecision.precision ? currentDataPrecision.hasZeroPoint : true,
+            updatePrecisions,
+            deqPrecision);
+        dequantizations[fakeQuantizeLayer->get_friendly_name()] = fakeQuantizeDequantization;
+
+        // 2. update FakeQuantize - one time action
+        const std::shared_ptr<opset1::FakeQuantize> newFakeQuantizeLayer = ngraph::pass::low_precision::NetworkHelper::updateFakeQuantize(
+            fq,
+            updatePrecisions ? dataPrecision.precision : fakeQuantizeLayer->get_output_element_type(0),
+            roundf(dataPrecision.min),
+            roundf(dataPrecision.max));
+
+        subgraph.quantizationLayers[i] = newFakeQuantizeLayer;
+        subgraph.layers[fakeQuantizeLayer->get_friendly_name()] = newFakeQuantizeLayer;
+    }
+
+    auto dequantizationValuesCallback = [&](
+        std::shared_ptr<ngraph::Node> layer,
+        std::shared_ptr<ngraph::Node> child,
+        const std::string originalLayerName,
+        std::vector<FakeQuantizeDequantization>& dequantizationsToConcatenate) {
+        if (layer->get_friendly_name() != originalLayerName) {
+            const auto update = [](
+                const std::string& originalLayerName,
+                const std::string& newLayerName,
+                std::unordered_map<std::string, FakeQuantizeDequantization>& dequantizationLayers) {
+                auto it = dequantizationLayers.find(originalLayerName);
+                if (it != dequantizationLayers.end()) {
+                    dequantizationLayers.emplace(newLayerName, it->second);
+                    dequantizationLayers.erase(it);
+                }
+            };
+            update(originalLayerName, layer->get_friendly_name(), dequantizations);
+        }
+
+        fillDequantization(
+            layer,
+            dequantizations,
+            dequantizationsToConcatenate);
+
+        if (!is_type<ngraph::opset1::Concat>(layer)) {
+            // for intermediate layers we should get Dq operations to be inserted between layer and child
+            assert(dequantizationsToConcatenate.size() == 1ul);
+            const size_t sourceOutputIdx = NetworkHelper::getParentOutputIndex(layer, child);
+            if (layer->get_input_shape(0)[1] != layer->get_output_shape(sourceOutputIdx)[1]) {
+                dequantizationsToConcatenate[0] = getFoldedDequantization(layer, dequantizationsToConcatenate[0], sourceOutputIdx);
+            }
+        }
+    };
+
+    addDequantizationLayers(context, subgraph, dequantizationValuesCallback);
+
+    if (updatePrecisions) {
+        for (const auto it : subgraph.layers) {
+            const std::shared_ptr<ngraph::Node> node = it.second;
+            if (std::dynamic_pointer_cast<ngraph::op::TypeRelaxedBase>(node)) {
+                ngraph::pass::low_precision::NetworkHelper::setOutDataPrecisionForTypeRelaxed(node->shared_from_this(), dataPrecision.precision);
+            } else {
+                // set precision to explicitly to have updated precision during transformation
+                for (size_t i = 0; i < node->get_output_size(); ++i) {
+                    node->set_output_type(i, dataPrecision.precision, node->get_output_partial_shape(i));
                 }
             }
         }
     }
 
-    // Add scaleshift at other outputs of the Quantize layer
-    for (int index = 0; index < parentsCount; index++) {
-        const CNNLayer& fakeQuantize = *quantizeLayers[index];
-        context.quantizedFakeQuantizeNames.insert(fakeQuantize.name);
-
-        std::vector<CNNLayerPtr> children =
-            CNNNetworkHelper::getChildrenRecursivelyExceptTypes(fakeQuantize, {"Pooling"});
-        for (auto it = children.begin(); it != children.end(); ++it) {
-            CNNLayerPtr child = *it;
-            if (index < childNameOurAfterQuantizeLayers.size()
-                    && child->name == childNameOurAfterQuantizeLayers[index]) {
-                children.erase(it, it + 1);
-                break;
-            }
-        }
-
-        for (const CNNLayerPtr& child : children) {
-            const std::vector<CNNLayerPtr> parents = CNNNetworkHelper::getParents(*child);
-
-            auto dequantizationScalesIt = dequantizationScalesLayers.find(fakeQuantize.name);
-            if (dequantizationScalesIt == dequantizationScalesLayers.end()) {
-                THROW_IE_EXCEPTION << "dequantization scales not found for layer " << fakeQuantize.name;
-            }
-
-            auto dequantizationShiftIt = dequantizationShiftsLayers.find(fakeQuantize.name);
-            if (dequantizationShiftIt == dequantizationShiftsLayers.end()) {
-                THROW_IE_EXCEPTION << "dequantization shifts not found for layer " << fakeQuantize.name;
-            }
-
-            const size_t fakeQuantizeOutputChannelsCount = CNNNetworkHelper::getOutputChannelsCount(fakeQuantize);
-            CNNLayerPtr dequantizationLayer = CNNNetworkHelper::addScaleShiftBetween(
-                context,
-                quantizeLayers[index],
-                child,
-                DequantizationDetails(dequantizationScalesIt->second, dequantizationShiftIt->second, fakeQuantizeOutputChannelsCount));
-            context.dequantizationLayersNames.insert(dequantizationLayer->name);
-
-            if (updatePrecisions &&
-                QuantizationDetails::isSupportedLevel(QuantizationDetails::getDetails(fakeQuantize).levels)) {
-                CNNNetworkHelper::setOutDataPrecision(
-                    CNNNetworkHelper::getLayers(fakeQuantize, *dequantizationLayer),
-                    dataPrecision.precision);
-            }
-        }
+    for (const std::shared_ptr<ngraph::Node>& quantizationLayer : subgraph.quantizationLayers) {
+        context.quantizedFakeQuantizeNames.insert(quantizationLayer->get_friendly_name());
     }
+    return true;
+}
 
-    if (updatePrecisions) {
-        CNNNetworkHelper::setOutDataPrecision(concat, dataPrecision.precision);
-        for (const CNNLayerPtr& concatLayer : concatLayers) {
-            if (concatLayer->name == concat.name) {
+bool ConcatMultiChannelsTransformation::isPrecisionPreserved(std::shared_ptr<Node>) const noexcept {
+    return true;
+}
+
+void ConcatMultiChannelsTransformation::fillDequantization(
+    const std::shared_ptr<ngraph::Node> layer,
+    const std::unordered_map<std::string, FakeQuantizeDequantization>& dequantizationByFakeQuantize,
+    std::vector<FakeQuantizeDequantization>& dequantization) const {
+    const auto fillDqByFakeQuantize = [&](const std::shared_ptr<ngraph::Node>& fq) {
+        const auto it = dequantizationByFakeQuantize.find(fq->get_friendly_name());
+        if (it == dequantizationByFakeQuantize.end()) {
+            THROW_IE_LPT_EXCEPTION(*fq) << "dequantization scale values are not found";
+        }
+
+        const FakeQuantizeDequantization& fakeQuantizeDequantization = it->second;
+        dequantization.push_back(fakeQuantizeDequantization);
+    };
+
+    if (is_type<ngraph::opset1::FakeQuantize>(layer)) {
+        fillDqByFakeQuantize(layer);
+    } else {
+        for (size_t i = 0; i < layer->get_input_size(); ++i) {
+            std::shared_ptr<ngraph::Node> parent = layer->get_input_node_shared_ptr(i);
+            if (as_type_ptr<ngraph::opset1::Constant>(parent)) {
                 continue;
             }
 
-            // TODO: check if the same precision is used: U8 or S8 for all concat layers
-            // TODO: fix & remove
-            const DataPtr insData = concatLayer->insData[0].lock();
-            if (insData == nullptr) {
-                THROW_IE_LPT_EXCEPTION(*concatLayer) << "insert data is absent";
+            const auto fakeQuantize = ngraph::as_type_ptr<ngraph::opset1::FakeQuantize>(parent);
+            if (fakeQuantize) {
+                fillDqByFakeQuantize(fakeQuantize);
+            } else {
+                const auto concat = ngraph::as_type_ptr<ngraph::opset1::Concat>(parent);
+                if (concat) {
+                    std::vector<FakeQuantizeDequantization> dequantizationToConcatenate;
+                    fillDequantization(concat, dequantizationByFakeQuantize, dequantizationToConcatenate);
+
+                    // add concatenated dequantization operations to dequantization collection
+                    dequantization.push_back(getConcatenatedDequantization(concat, dequantizationToConcatenate));
+                } else {
+                    const size_t sourceOutputIdx = NetworkHelper::getParentOutputIndex(parent, layer);
+                    if (parent->get_input_shape(0)[1] != parent->get_output_shape(sourceOutputIdx)[1]) {
+                        std::vector<FakeQuantizeDequantization> dequantizationToPropagate;
+                        fillDequantization(parent, dequantizationByFakeQuantize, dequantizationToPropagate);
+
+                        // add folded dequantization operations to dequantization colection
+                        dequantization.push_back(getFoldedDequantization(parent, dequantizationToPropagate[0], sourceOutputIdx));
+                    } else {
+                        fillDequantization(parent, dequantizationByFakeQuantize, dequantization);
+                    }
+                }
             }
-            insData->setPrecision(dataPrecision.precision);
-            // TODO: workaround
-            concatLayer->precision = dataPrecision.precision;
-            CNNNetworkHelper::setOutDataPrecision(*concatLayer, dataPrecision.precision);
-        }
-    }
-
-    // Add scaleshift at outputs of our layers
-    children = CNNNetworkHelper::getChildren(concat);
-    if (children.size() == 0) {
-        const std::string originalName = concat.name;
-        CNNNetworkHelper::renameLayer(context.network, concat.name, concat.name + LayerTransformation::lastLayerPrefix);
-
-        const size_t outputChannelsCount = CNNNetworkHelper::getOutputChannelsCount(concat);
-        CNNLayerPtr dequantizationLayer = CNNNetworkHelper::addScaleShiftBetween(
-            context,
-            std::make_shared<CNNLayer>(concat),
-            nullptr,
-            DequantizationDetails(finalDequantizationScales, finalDequantizationShifts, outputChannelsCount),
-            originalName);
-        context.dequantizationLayersNames.insert(dequantizationLayer->name);
-    } else {
-        const size_t outputChannelsCount = CNNNetworkHelper::getOutputChannelsCount(concat);
-        for (const CNNLayerPtr& child : children) {
-            CNNLayerPtr dequantizationLayer = CNNNetworkHelper::addScaleShiftBetween(
-                context,
-                std::make_shared<CNNLayer>(concat),
-                child,
-                DequantizationDetails(finalDequantizationScales, finalDequantizationShifts, outputChannelsCount));
-            context.dequantizationLayersNames.insert(dequantizationLayer->name);
-        }
-    }
-
-    // Add scaleshift at outputs of side branches
-    for (int index = 0; index < sideOutputLayers.size(); index++) {
-        const CNNLayerPtr concatLayer = sideOutputLayers[index];
-
-        const size_t concatOutputChannelsCount = CNNNetworkHelper::getOutputChannelsCount(*concatLayer);
-        std::vector<float> dequantizationScales1(concatOutputChannelsCount);
-        std::vector<float> dequantizationShifts1(concatOutputChannelsCount);
-        for (size_t index_ = 0; index_ < concatOutputChannelsCount; ++index_) {
-            dequantizationScales1[index_] = finalDequantizationScales[index_];
-            dequantizationShifts1[index_] = finalDequantizationShifts[index_];
-        }
-
-        std::vector<CNNLayerPtr> children = CNNNetworkHelper::getChildren(*concatLayer, childrenNameSideOutputLayers[index]);
-        for (int i = 0; i < children.size(); i++) {
-            CNNLayerPtr dequantizationLayer = CNNNetworkHelper::addScaleShiftBetween(
-                context,
-                std::make_shared<CNNLayer>(*sideOutputLayers[index]),
-                children[i],
-                DequantizationDetails(dequantizationScales1, dequantizationShifts1, concatOutputChannelsCount));
-            context.dequantizationLayersNames.insert(dequantizationLayer->name);
         }
     }
 }
+
+FakeQuantizeDequantization ConcatMultiChannelsTransformation::getConcatenatedDequantization(
+    const std::shared_ptr<ngraph::opset1::Concat> concat,
+    const std::vector<FakeQuantizeDequantization>& dequantization) const {
+    NodeVector convertNodes;
+    NodeVector subtractNodes;
+    NodeVector multiplyNodes;
+
+    // forming nodes for concatenation
+    fillDequantizationNodes(dequantization, concat, convertNodes, subtractNodes, multiplyNodes);
+
+    std::shared_ptr<Node> parent = concat;
+    std::shared_ptr<DequantizationConvert> convert;
+    if (!convertNodes.empty()) {
+        convert = as_type_ptr<DequantizationConvert>(dequantization[0].convert->clone_with_new_inputs({ parent }));
+        parent = convert;
+    }
+
+    std::shared_ptr<DequantizationSubtract> subtract;
+    std::shared_ptr<ngraph::opset1::Constant> subConst;
+    if (!subtractNodes.empty()) {
+        subConst = as_type_ptr<ngraph::opset1::Constant>(concatenateDeqNodes(subtractNodes));
+        subtract = std::make_shared<DequantizationSubtract>(parent, subConst);
+        parent = subtract;
+    }
+
+    std::shared_ptr<DequantizationMultiply> multiply;
+    std::shared_ptr<ngraph::opset1::Constant> mulConst;
+    if (!multiplyNodes.empty()) {
+        mulConst = as_type_ptr<ngraph::opset1::Constant>(concatenateDeqNodes(multiplyNodes));
+        multiply = std::make_shared<DequantizationMultiply>(parent, mulConst);
+    }
+
+    return FakeQuantizeDequantization(concat, convert, subtract, nullptr, subConst, multiply, mulConst);
+}
+
+FakeQuantizeDequantization ConcatMultiChannelsTransformation::getFoldedDequantization(
+    const std::shared_ptr<ngraph::Node> operation,
+    const FakeQuantizeDequantization& dequantization,
+    const size_t sourceOutputIdx) {
+    OutputVector inputs = operation->input_values();
+    OutputVector outputs(operation->get_output_size());
+    Output<Node> data = operation->output(sourceOutputIdx);
+
+    std::shared_ptr<Node> parent = operation;
+    std::shared_ptr<DequantizationConvert> convert;
+    if (dequantization.convert) {
+        convert = as_type_ptr<DequantizationConvert>(dequantization.convert->clone_with_new_inputs({ data }));
+        parent = convert;
+    }
+
+    std::shared_ptr<DequantizationSubtract> subtract;
+    std::shared_ptr<ngraph::opset1::Constant> subConst;
+    if (dequantization.subtract) {
+        subConst = NetworkHelper::foldDequantizationConstant(dequantization.subtractConstant, operation, sourceOutputIdx);
+        subtract = std::make_shared<DequantizationSubtract>(parent, subConst);
+        parent = subtract;
+    }
+
+    std::shared_ptr<DequantizationMultiply> multiply;
+    std::shared_ptr<ngraph::opset1::Constant> mulConst;
+    if (dequantization.multiply) {
+        mulConst = NetworkHelper::foldDequantizationConstant(dequantization.multiplyConstant, operation, sourceOutputIdx);
+        multiply = std::make_shared<DequantizationMultiply>(parent, mulConst);
+    }
+
+    return FakeQuantizeDequantization(data, convert, subtract, nullptr, subConst, multiply, mulConst);
+}
+
+} // namespace low_precision
+} // namespace pass
+} // namespace ngraph

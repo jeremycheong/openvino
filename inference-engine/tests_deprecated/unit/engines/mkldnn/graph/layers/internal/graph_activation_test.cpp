@@ -1,21 +1,22 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include <gtest/gtest.h>
-#include <gmock/gmock-spec-builders.h>
-#include "mkldnn_graph.h"
 #include "test_graph.hpp"
 #include "single_layer_common.hpp"
-#include <mkldnn_extension_utils.h>
-#include <cnn_network_impl.hpp>
 #include "tests_common.hpp"
-#include <cpp/ie_cnn_net_reader.h>
+#include <ie_core.hpp>
 #include <ie_plugin_config.hpp>
 
 using namespace ::testing;
 using namespace std;
 using namespace mkldnn;
+
+constexpr auto eltwise_relu = mkldnn::algorithm::eltwise_relu;
+constexpr auto eltwise_elu = mkldnn::algorithm::eltwise_elu;
+constexpr auto eltwise_logistic = mkldnn::algorithm::eltwise_logistic;
+constexpr auto eltwise_bounded_relu = mkldnn::algorithm::eltwise_bounded_relu;
+constexpr auto eltwise_tanh = mkldnn::algorithm::eltwise_tanh;
 
 struct activation_test_params {
     mkldnn::algorithm alg;
@@ -208,11 +209,12 @@ protected:
             activation_test_params p = ::testing::WithParamInterface<activation_test_params>::GetParam();
             std::string model = getModel(p);
 
-            InferenceEngine::CNNNetReader net_reader;
-            ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
+            InferenceEngine::Core core;
+            InferenceEngine::CNNNetwork network;
+            ASSERT_NO_THROW(network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr()));
 
             MKLDNNGraphTestClass graph;
-            graph.CreateGraph(net_reader.getNetwork());
+            graph.CreateGraph(network);
             auto& nodes = graph.getNodes();
             for (int i = 0; i < nodes.size(); i++) {
                 if (nodes[i]->getType() == MKLDNNPlugin::Activation) {
@@ -250,7 +252,7 @@ protected:
             srcs.insert(std::pair<std::string, InferenceEngine::Blob::Ptr>("in1", src));
 
             InferenceEngine::OutputsDataMap out;
-            out = net_reader.getNetwork().getOutputsInfo();
+            out = network.getOutputsInfo();
             InferenceEngine::BlobMap outputBlobs;
 
             std::pair<std::string, InferenceEngine::DataPtr> item = *out.begin();
@@ -268,7 +270,7 @@ protected:
             ref_activation(*srcPtr, dst_ref, p);
 
             compare(*output, dst_ref, 0.0005f);
-        } catch (const InferenceEngine::details::InferenceEngineException &e) {
+        } catch (const InferenceEngine::Exception &e) {
             FAIL() << e.what();
         }
     }
@@ -322,18 +324,19 @@ protected:
             if (MB < 2)
                 MB = 2;
 
-            InferenceEngine::CNNNetReader net_reader;
-            ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
-            InferenceEngine::CNNNetwork network = net_reader.getNetwork();
-            auto implNet = dynamic_cast<InferenceEngine::details::CNNNetworkImpl *>(&((InferenceEngine::ICNNNetwork&)network));
-            ASSERT_NE(nullptr, implNet) << "Failed to cast ICNNNetwork to CNNNetworkImpl";
+            InferenceEngine::Core core;
+            InferenceEngine::CNNNetwork network;
+            ASSERT_NO_THROW(network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr()));
+
+            ASSERT_EQ(nullptr, network.getFunction());
+            auto implNet = static_cast<InferenceEngine::details::CNNNetworkImpl *>(&((InferenceEngine::ICNNNetwork&)network));
             InferenceEngine::ResponseDesc resp;
             InferenceEngine::StatusCode sts  = implNet->setBatchSizeReshape(MB, &resp);
             ASSERT_EQ((int)InferenceEngine::StatusCode::OK, sts) << resp.msg;
 
             MKLDNNGraphTestClass graph;
             graph.setProperty({{InferenceEngine::PluginConfigParams::KEY_DYN_BATCH_ENABLED, InferenceEngine::PluginConfigParams::YES}});
-            graph.CreateGraph(net_reader.getNetwork());
+            graph.CreateGraph(network);
 
             InferenceEngine::SizeVector dims_src = p.dims;
             InferenceEngine::Layout layout = InferenceEngine::ANY;
@@ -359,7 +362,7 @@ protected:
             srcs.insert(std::pair<std::string, InferenceEngine::Blob::Ptr>("in1", src));
 
             InferenceEngine::OutputsDataMap out;
-            out = net_reader.getNetwork().getOutputsInfo();
+            out = network.getOutputsInfo();
             InferenceEngine::BlobMap outputBlobs;
 
             std::pair<std::string, InferenceEngine::DataPtr> item = *out.begin();
@@ -375,7 +378,7 @@ protected:
 
             graph.checkDynBatch(srcs, outputBlobs, MB, MB, checkActivation);
             graph.checkDynBatch(srcs, outputBlobs, 1, MB, checkActivation);
-        } catch (const InferenceEngine::details::InferenceEngineException &e) {
+        } catch (const InferenceEngine::Exception &e) {
             FAIL() << e.what();
         }
     }
@@ -389,30 +392,31 @@ INSTANTIATE_TEST_CASE_P(
         ::testing::Values(
                 activation_test_params{eltwise_relu, 0.0f, 0.0f, {2, 32, 128, 256}, 3, MKLDNNPlugin::impl_desc_type::jit},
                 activation_test_params{eltwise_relu, 0.0f, 0.0f, {4, 3, 228, 228}, 3, MKLDNNPlugin::impl_desc_type::jit},
-                activation_test_params{eltwise_relu, 0.5f, 0.5f, {1, 32, 128, 256}, 3, MKLDNNPlugin::impl_desc_type::jit},
                 activation_test_params{eltwise_relu, 0.5f, 0.5f, {4, 3, 228, 228}, 3, MKLDNNPlugin::impl_desc_type::jit},
-                activation_test_params{eltwise_elu, 0.5f, 0.5f, {1, 32, 128, 256}, 3, MKLDNNPlugin::impl_desc_type::jit},
                 activation_test_params{eltwise_elu, 0.5f, 0.5f, {4, 3, 228, 228}, 3, MKLDNNPlugin::impl_desc_type::jit},
-                activation_test_params{eltwise_elu, 1.0f, 1.0f, {1, 32, 128, 256}, 3, MKLDNNPlugin::impl_desc_type::jit},
                 activation_test_params{eltwise_elu, 1.0f, 1.0f, {4, 3, 228, 228}, 3, MKLDNNPlugin::impl_desc_type::jit},
-                activation_test_params{eltwise_logistic, 0.0f, 0.0f, {1, 32, 128, 256}, 3, MKLDNNPlugin::impl_desc_type::jit},
                 activation_test_params{eltwise_logistic, 0.0f, 0.0f, {4, 3, 228, 228}, 3, MKLDNNPlugin::impl_desc_type::jit},
-                activation_test_params{eltwise_bounded_relu, 6.0f, 0.0f, {1, 32, 128, 256}, 3, MKLDNNPlugin::impl_desc_type::jit},
                 activation_test_params{eltwise_bounded_relu, 6.0f, 0.0f, {4, 3, 228, 228}, 3, MKLDNNPlugin::impl_desc_type::jit},
-                activation_test_params{eltwise_bounded_relu, 0.1f, 0.0f, {1, 32, 128, 256}, 3, MKLDNNPlugin::impl_desc_type::jit},
                 activation_test_params{eltwise_bounded_relu, 0.1f, 0.0f, {4, 3, 228, 228}, 3, MKLDNNPlugin::impl_desc_type::jit},
-                activation_test_params{eltwise_relu, 0.0f, 0.0f, {1, 32, 128, 256}, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref_any}},
                 activation_test_params{eltwise_relu, 0.0f, 0.0f, {4, 3, 228, 228}, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref_any}},
-                activation_test_params{eltwise_relu, 0.5f, 0.5f, {1, 32, 128, 256}, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref_any}},
                 activation_test_params{eltwise_relu, 0.5f, 0.5f, {4, 3, 228, 228}, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref_any}},
-                activation_test_params{eltwise_elu, 0.5f, 0.5f, {1, 32, 128, 256}, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref_any}},
                 activation_test_params{eltwise_elu, 0.5f, 0.5f, {4, 3, 228, 228}, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref_any}},
-                activation_test_params{eltwise_elu, 1.0f, 1.0f, {1, 32, 128, 256}, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref_any}},
                 activation_test_params{eltwise_elu, 1.0f, 1.0f, {4, 3, 228, 228}, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref_any}},
-                activation_test_params{eltwise_logistic, 0.0f, 0.0f, {1, 32, 128, 256}, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref_any}},
                 activation_test_params{eltwise_logistic, 0.0f, 0.0f, {4, 3, 228, 228}, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref_any}},
-                activation_test_params{eltwise_bounded_relu, 6.0f, 0.0f, {1, 32, 128, 256}, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref_any}},
                 activation_test_params{eltwise_bounded_relu, 6.0f, 0.0f, {4, 3, 228, 228}, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref_any}},
-                activation_test_params{eltwise_bounded_relu, 0.1f, 0.0f, {1, 32, 128, 256}, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref_any}},
                 activation_test_params{eltwise_bounded_relu, 0.1f, 0.0f, {4, 3, 228, 228}, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref_any}}
+                // TODO: rewrite to ngraph to have reshape functionality
+                // activation_test_params{eltwise_relu, 0.5f, 0.5f, {1, 32, 128, 256}, 3, MKLDNNPlugin::impl_desc_type::jit},
+                // activation_test_params{eltwise_elu, 0.5f, 0.5f, {1, 32, 128, 256}, 3, MKLDNNPlugin::impl_desc_type::jit},
+                // activation_test_params{eltwise_elu, 1.0f, 1.0f, {1, 32, 128, 256}, 3, MKLDNNPlugin::impl_desc_type::jit},
+                // activation_test_params{eltwise_logistic, 0.0f, 0.0f, {1, 32, 128, 256}, 3, MKLDNNPlugin::impl_desc_type::jit},
+                // activation_test_params{eltwise_bounded_relu, 6.0f, 0.0f, {1, 32, 128, 256}, 3, MKLDNNPlugin::impl_desc_type::jit},
+                // activation_test_params{eltwise_bounded_relu, 0.1f, 0.0f, {1, 32, 128, 256}, 3, MKLDNNPlugin::impl_desc_type::jit},
+                // activation_test_params{eltwise_relu, 0.0f, 0.0f, {1, 32, 128, 256}, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref_any}},
+                // activation_test_params{eltwise_relu, 0.5f, 0.5f, {1, 32, 128, 256}, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref_any}},
+                // activation_test_params{eltwise_elu, 0.5f, 0.5f, {1, 32, 128, 256}, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref_any}},
+                // activation_test_params{eltwise_elu, 1.0f, 1.0f, {1, 32, 128, 256}, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref_any}},
+                // activation_test_params{eltwise_logistic, 0.0f, 0.0f, {1, 32, 128, 256}, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref_any}},
+                // activation_test_params{eltwise_bounded_relu, 6.0f, 0.0f, {1, 32, 128, 256}, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref_any}},
+                // activation_test_params{eltwise_bounded_relu, 0.1f, 0.0f, {1, 32, 128, 256}, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref_any}},
         ));

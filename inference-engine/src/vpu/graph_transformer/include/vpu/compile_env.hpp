@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -21,6 +21,7 @@ struct DefaultAllocation {
     static int numStreams(const Platform& platform, const CompilationConfig& configuration);
     static int numSlices(const Platform& platform, int numStreams);
     static int numShaves(const Platform& platform, int numStreams, int numSlices);
+    static int tilingCMXLimit(int numSlices);
 };
 
 struct CompileEnv final {

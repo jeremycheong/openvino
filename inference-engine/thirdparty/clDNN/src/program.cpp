@@ -1,18 +1,6 @@
-/*
-// Copyright (c) 2016-2019 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -26,6 +14,7 @@
 #include "program_dump_graph.h"
 #include "program_impl.h"
 #include "sliding_window_utils.h"
+#include "program_helpers.h"
 
 #include "roi_pooling_inst.h"
 #include "reorg_yolo_inst.h"
@@ -36,6 +25,7 @@
 #include "binary_convolution_inst.h"
 #include "resample_inst.h"
 #include "reshape_inst.h"
+#include "quantize_inst.h"
 #include "activation_inst.h"
 #include "scale_inst.h"
 #include "depth_to_space_inst.h"
@@ -46,6 +36,8 @@
 #include "deconvolution_inst.h"
 #include "detection_output_inst.h"
 #include "input_layout_inst.h"
+#include "shuffle_channels_inst.h"
+#include "arg_max_min_inst.h"
 #include "lstm_inst.h"
 #include "lstm_elt_inst.h"
 #include "lstm_gemm_inst.h"
@@ -57,10 +49,17 @@
 #include "reorder_inst.h"
 #include "split_inst.h"
 #include "mvn_inst.h"
+#include "gemm_inst.h"
+#include "reduce_inst.h"
+#include "region_yolo_inst.h"
+#include "strided_slice_inst.h"
 #include "to_string_utils.h"
 #include "gpu/memory_gpu.h"
+#include "cldnn_itt.h"
 
 #include "gpu/ocl_toolkit.h"
+
+#include "kernel_base.h"
 
 #include <algorithm>
 #include <fstream>
@@ -95,6 +94,7 @@ program_impl::program_impl(engine_impl& engine_ref,
     : engine(&engine_ref),
       options(options),
       processing_order() {
+    kernel_selector::KernelBase::ResetCounter();
     set_options();
     pm = std::unique_ptr<pass_manager>(new pass_manager(*this));
     prepare_nodes(topology);
@@ -364,12 +364,20 @@ void program_impl::build_program(bool is_internal) {
     if (!is_internal)
         prim_info = get_current_stage_info();
 
-    transfer_memory_to_device();
+    if (!is_internal)
+        transfer_memory_to_device();
+
     cleanup();
 }
 
 void program_impl::init_graph() {
+    OV_ITT_SCOPED_TASK(itt::domains::CLDNN, "ProgramImpl::InitGraph");
     apply_opt_pass<graph_initializations>();
+
+    for (auto& node : processing_order) {
+        if (!node->is_type<internal_primitive>() && !node->is_type<data>())
+            node->get_output_layout();
+    }
 
     apply_opt_pass<calculate_prior_boxes>();
 
@@ -379,14 +387,12 @@ void program_impl::init_graph() {
 void program_impl::run_graph_compilation() { apply_opt_pass<compile_graph>(); }
 
 void program_impl::pre_optimize_graph(bool is_internal) {
+    OV_ITT_SCOPED_TASK(itt::domains::CLDNN, "ProgramImpl::PreOptimizeGraph");
     // trim to outputs
     apply_opt_pass<trim_to_outputs>();  // ToDo remove hidden dependencies from trimm pass
 
     // handle symmetric and asymmetric padding for input
     apply_opt_pass<handle_input_padding>();
-
-    // add reshape to input/parameters for some primitives
-    apply_opt_pass<add_reshape_to_primitives>();
 
     processing_order.calculate_BFS_processing_order();  // this method makes sense only for OOOQ (out of order execution queue)
 
@@ -412,6 +418,10 @@ void program_impl::pre_optimize_graph(bool is_internal) {
         apply_opt_pass<prepare_primitive_fusing>(lo);
 
         apply_opt_pass<reorder_inputs>(lo, rf);
+        // Ideally this should be done before fusing to simplify logic and make the pass more powerful,
+        // but after format selection to select correct alignment.
+        // Unfortunately those passes currently happen in reverse order.
+        apply_opt_pass<concat_input_order>();
 
         // TODO this code should be moved to post compilation after kernel selector will support handling reorder bias
         apply_opt_pass<pre_optimize_bias>(rf);
@@ -455,6 +465,7 @@ void program_impl::pre_optimize_graph(bool is_internal) {
 }
 
 void program_impl::post_optimize_graph(bool is_internal) {
+    OV_ITT_SCOPED_TASK(itt::domains::CLDNN, "ProgramImpl::PostOptimizeGraph");
     // input reorder for fully connected if necessary
     apply_opt_pass<post_input_reorder>();
 
@@ -507,19 +518,29 @@ void program_impl::mark_if_data_flow(program_node& node) {
 }
 
 void program_impl::transfer_memory_to_device() {
+    OV_ITT_SCOPED_TASK(itt::domains::CLDNN, "ProgramImpl::TransferMemory");
     for (auto& node : processing_order) {
         if (node->is_type<data>() && !node->need_lockable_memory()) {
             auto& data_node = node->as<data>();
+            auto data_node_layout = data_node.get_output_layout();
             auto& mem = data_node.get_attached_memory();
+            auto mem_layout = mem.get_layout();
             auto alloc_type = mem.get_allocation_type();
+
+            if (!program_helpers::are_layouts_identical(mem_layout, data_node_layout).second) {
+                std::string err_str("Node and memory layouts are incompatible, error occurred for " + node->id() + " node");
+                throw std::invalid_argument(err_str);
+            }
 
             if (alloc_type == allocation_type::usm_host || alloc_type == allocation_type::usm_shared) {
                 // Allocate and transfer memory
-                auto device_mem = mem.get_engine()->allocate_memory(mem.get_layout(),
+                auto device_mem = mem.get_engine()->allocate_memory(data_node_layout,
                                                                     allocation_type::usm_device,
-                                                                    mem.get_net_id());
+                                                                    mem.get_net_id(),
+                                                                    false);
                 dynamic_cast<gpu::gpu_usm&>(*device_mem).copy_from_other(dynamic_cast<gpu::gpu_usm&>(mem));
                 data_node.attach_memory(*device_mem);
+                const_cast<memory&>(data_node.get_primitive()->mem).reset();
             }
         }
     }
@@ -553,7 +574,7 @@ void program_impl::add_split_outputs() {
             primitive_id input_id = split_prim->input[0];
             auto split_num = split_prim->output_offsets.size();
 
-            // create crop for each split ouptut provided
+            // create crop for each split output provided
             for (decltype(split_num) i = 0; i < split_num; i++) {
                 primitive_id output_id = node->id() + ":" + split_prim->output_ids[i];
 
@@ -755,11 +776,12 @@ void program_impl::swap_names(program_node& node1, program_node& node2) {
 }
 
 void program_impl::replace_all_usages(program_node& old_node, program_node& new_node) {
-    auto itr = old_node.users.begin();
-    auto cnt = old_node.users.size();
-    while (cnt != 0) {
-        cnt--;
+    const std::list<program_node*> users(old_node.users);
+    auto itr = users.begin();
+    bool end = (itr == users.end());
+    while (!end) {
         auto& usage = (*itr++);
+        end = (itr == users.end());
         usage->replace_dependency(old_node, new_node);
     }
 }
@@ -896,6 +918,29 @@ void program_impl::fuse_nodes(program_node &fused_node, program_node &peer_node)
         auto& dep = peer_node.get_dependency(i);
         if (dep.id() == fused_node.id())
             continue;
+
+        if (peer_node.is_type<quantize>()) {
+            quantize_node& q_node = peer_node.as<quantize>();
+            if (q_node.get_scale_shift_opt()) {
+                bool can_drop_input = false;
+
+                // Drop input range if clamp is not needed
+                can_drop_input |= (i == 1 || i == 2) && !q_node.get_need_clamp();
+                // Drop output range - it's not used in scale-shift-opt quantize kernel
+                can_drop_input |= i == 3 || i == 4;
+                // Drop tensor with input scale when we have per-tensor parameter
+                can_drop_input |= i == 5 && q_node.get_per_tensor_input_scale();
+                // Drop tensor with input shift when we have per-tensor parameter or it's not needed at all
+                can_drop_input |= i == 6 && (!q_node.get_need_pre_shift() || q_node.get_per_tensor_input_shift());
+                // Drop tensor with output scale when we have per-tensor parameter or it's not needed at all
+                can_drop_input |= i == 7 && (!q_node.get_need_post_scale() || q_node.get_per_tensor_output_scale());
+                // Drop tensor with output shift when we have per-tensor parameter or it's not needed at all
+                can_drop_input |= i == 8 && (!q_node.get_need_post_shift() || q_node.get_per_tensor_output_shift());
+
+                if (can_drop_input)
+                    continue;
+            }
+        }
         fused_node.dependencies.push_back(&dep);
         local_desc.deps.push_back(dep.id());
         dep.users.push_back(&fused_node);
@@ -980,6 +1025,45 @@ void program_impl::dump_program(const char* stage,
 
 program_impl::primitives_info program_impl::get_current_stage_info() const {
     primitives_info info;
+
+    auto get_inference_precision = [](program_node& node) -> data_types {
+        if (node.is_input()) {
+            return node.get_output_layout().data_type;
+        }
+        std::vector<data_types> input_dts;
+        for (auto& dep : node.get_dependencies()) {
+            input_dts.push_back(dep->get_output_layout().data_type);
+        }
+        data_types output_dt = node.get_output_layout().data_type;
+
+        assert(!input_dts.empty());
+        if (node.is_type<reorder>()) {
+            // If reorder has different input/output types - pick the max one as runtime precision
+            return data_type_traits::max_type(input_dts[0], output_dt);
+        } else if (node.is_type<quantize>()) {
+            if (data_type_traits::is_quantized(output_dt))
+                return output_dt;
+            return data_type_traits::max_type(input_dts[0], output_dt);
+        } else if (node.is_type<eltwise>()) {
+            auto max_dt = input_dts[0];
+            for (size_t i = 1; i < input_dts.size(); i++) {
+                max_dt = data_type_traits::max_type(max_dt, input_dts[i]);
+            }
+            return max_dt;
+        } else if (node.is_type<convolution>() || node.is_type<deconvolution>() || node.is_type<fully_connected>() || node.is_type<gemm>()) {
+            if (input_dts.size() < 2) {
+                throw std::runtime_error("[clDNN] Invalid inputs count in node " + node.id() + " during stage info collection. Expected >= 2 inputs");
+            }
+            if (data_type_traits::is_quantized(input_dts[0]) && data_type_traits::is_quantized(input_dts[1])) {
+                return input_dts[0];
+            } else {
+                return data_type_traits::max_type(input_dts[0], input_dts[1]);
+            }
+        }
+
+        return input_dts[0];
+    };
+
     // Get info for actually executed graph nodes
     int exec_id = 0;
     for (auto& p : get_processing_order()) {
@@ -1009,6 +1093,7 @@ program_impl::primitives_info program_impl::get_current_stage_info() const {
                           p->get_output_layout(),
                           fmt_to_str(p->get_output_layout().format),
                           p->selected_impl ? p->selected_impl->get_kernel_name() : "",
+                          get_inference_precision(*p),
                           p->selected_impl ? p->selected_impl->is_cpu() : false,
                           exec_id++);
 
@@ -1053,12 +1138,17 @@ void program_impl::set_layout_optimizer_attributes(layout_optimizer& lo) {
     // first pass to set layout optimization_attributes for topology
     bool can_use_fsv16 = true;
     bool can_use_bs_fs_yx_bsv16_fsv16 = true;
+    bool is_quantized_int8_model = false;
     size_t total_asym_quantized_conv_layers = 0;
     size_t total_dw_conv_layers = 0;
     size_t total_dw_splitted_conv_layers = 0;
     size_t total_1x1_fm_conv_layers = 0;
     size_t total_grouped_conv_layers = 0;
     size_t opt_deconv_layers_b_fs_zyx_fsv16 = 0;
+    size_t total_crop_layers = 0;
+
+    size_t weighted_sum_feature_size = 0;
+    size_t weight_sum = 0;
 
     for (auto& node : get_processing_order()) {
         auto &prim = *node;
@@ -1123,17 +1213,31 @@ void program_impl::set_layout_optimizer_attributes(layout_optimizer& lo) {
             prim.type() != cldnn::crop::type_id() &&
             prim.type() != cldnn::scale::type_id() &&
             prim.type() != cldnn::depth_to_space::type_id() &&
+            prim.type() != cldnn::shuffle_channels::type_id() &&
             (prim.type() != cldnn::mvn::type_id()
              || (prim.as<mvn>().input().get_output_layout().data_type != data_types::u8 &&
                  prim.as<mvn>().input().get_output_layout().data_type != data_types::i8)
-             || prim.as<mvn>().get_primitive()->across_channels))
+             || prim.as<mvn>().get_primitive()->across_channels) &&
+            prim.type() != cldnn::arg_max_min::type_id() &&
+            prim.type() != cldnn::mutable_data::type_id() &&
+            prim.type() != cldnn::reduce::type_id() &&
+            prim.type() != cldnn::strided_slice::type_id() &&
+            prim.type() != cldnn::region_yolo::type_id() &&
+            prim.type() != cldnn::mvn::type_id())
             can_use_fsv16 = false;
 
-        // WA to keep bfyx_f16 layout disabled for some topologies where it leads to regressions.
-        // Detects if given crop layer is located in the very beginning of the graph.
+        if (prim.type() == cldnn::quantize::type_id() &&
+            (prim.get_output_layout().data_type == data_types::i8 || prim.get_output_layout().data_type == data_types::u8)) {
+            is_quantized_int8_model = true;
+        }
+
+        // WA to keep fsv16 layout disabled for some topologies where it leads to regressions.
+        // For reshape bfy*x is preferred, as fsv16 introduces extra reorders
         if (prim.type() == cldnn::crop::type_id()) {
-            if (!prim.get_dependencies()[0]->is_type<reorder>() || !prim.get_dependencies()[0]->get_dependencies()[0]->is_input())
+            if (prim.get_dependencies()[0]->is_type<reshape>() || prim.get_dependencies()[0]->is_type<concatenation>()) {
                 can_use_fsv16 = false;
+            }
+            total_crop_layers++;
         }
 
         if (prim.is_in_data_flow() &&
@@ -1148,7 +1252,8 @@ void program_impl::set_layout_optimizer_attributes(layout_optimizer& lo) {
             prim.type() != cldnn::scale::type_id() &&
             prim.type() != cldnn::softmax::type_id() &&
             prim.type() != cldnn::fully_connected::type_id() &&
-            prim.type() != cldnn::generic_layer::type_id())
+            prim.type() != cldnn::generic_layer::type_id() &&
+            prim.type() != cldnn::quantize::type_id())
             can_use_bs_fs_yx_bsv16_fsv16 = false;
     }
 
@@ -1157,11 +1262,16 @@ void program_impl::set_layout_optimizer_attributes(layout_optimizer& lo) {
     // Due to fact that single winograd convolution is faster than b_fs_yx_fsv16 and
     // using them together leads do redundant reorders, whole topology switch
     // will be performed if at least half of layers can use b_fs_yx_fsv16.
+    // Crop layers are poorly optimized in fsv16 layout so whole topology stays in bfyx
+    // if there are many crops (2x more then b_fs_yx_fsv16 convolutions)
     const float cond_denom = total_conv_layers > 0 ? 1.0f / static_cast<float>(total_conv_layers) : 1.0f;
+    size_t num_of_conv_b_fs_yx_fsv16 = lo.get_optimized_conv_count({format::b_fs_yx_fsv16, false});
 
-    bool should_use_b_fs_yx_fsv16_conv = can_use_fsv16 &&
-                                         total_conv_layers > 11 &&
-                                         lo.get_optimized_conv_count({format::b_fs_yx_fsv16, false}) * cond_denom > 0.5f;
+    bool should_use_b_fs_yx_fsv16_conv = is_quantized_int8_model ||
+                                         (can_use_fsv16 &&
+                                          total_conv_layers > 11 &&
+                                          num_of_conv_b_fs_yx_fsv16 * cond_denom > 0.5f &&
+                                          num_of_conv_b_fs_yx_fsv16 * 2 > total_crop_layers);
 
     bool should_use_fs_b_yx_fsv32_conv = total_conv_layers > 11 &&
                                          total_grouped_conv_layers == 0 &&
@@ -1190,4 +1300,35 @@ void program_impl::set_layout_optimizer_attributes(layout_optimizer& lo) {
 
     if (should_use_bs_fs_yx_bsv16_fsv16)
         lo.set_optimization_attribute(layout_optimizer::optimization_attributes_type::bs_fs_yx_bsv16_fsv16_network, 1);
+
+
+    // This is to avoid using fsv16 for shallow-feature networks.
+    // This may not be exactly same as real execution graph as layer fusing is not done yet,
+    // but it is a reasonable approximation.
+    // Check the expected network efficiency after setting layer optimization attributes.
+    // If network depth is shallow, it is faster with fsv4.
+    for (auto& node : get_processing_order()) {
+        auto &prim = *node;
+
+        if (prim.is_in_data_flow() && prim.type() == cldnn::convolution::type_id()) {
+            size_t num_feature = prim.get_output_layout().size.feature.vector()[0];
+            size_t num_spatial = 1;
+            for (auto s : prim.get_output_layout().size.spatial.vector())
+                num_spatial *= s;
+
+            if (lo.get_preferred_format(prim) != format::b_fs_yx_fsv4) {
+                weight_sum += num_spatial;
+                weighted_sum_feature_size += num_spatial * num_feature;
+            }
+        }
+    }
+
+    size_t weighted_average_feature_depth = weighted_sum_feature_size / std::max(weight_sum, static_cast<size_t>(1));
+
+    // Need to confirm that weighted_average_feature_depth > 1 to keep unittest behavior.
+    if (is_quantized_int8_model && weighted_average_feature_depth < 8 && weighted_average_feature_depth > 1) {
+        lo.set_optimization_attribute(layout_optimizer::optimization_attributes_type::fs_b_yx_fsv32_network, 0);
+        lo.set_optimization_attribute(layout_optimizer::optimization_attributes_type::b_fs_yx_fsv16_network, 0);
+        lo.set_optimization_attribute(layout_optimizer::optimization_attributes_type::bs_fs_yx_bsv16_fsv16_network, 0);
+    }
 }

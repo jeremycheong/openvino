@@ -1,18 +1,6 @@
-/*
-// Copyright (c) 2016-2019 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 #include "network_impl.h"
@@ -23,6 +11,7 @@
 #include "api/mutable_data.hpp"
 #include "api/input_layout.hpp"
 #include <src/include/to_string_utils.h>
+#include "cldnn_itt.h"
 
 #include "error_handler.h"
 #include "primitive_inst.h"
@@ -73,14 +62,6 @@ void network::set_input_data(const primitive_id& id, const memory& mem) const {
 
 void network::set_output_memory(const primitive_id& id, const memory& mem) const {
     _impl->set_output_memory(id, *mem.get());
-}
-
-void network::set_learning_rate(const float lr) {
-    _impl->set_learning_rate(lr);
-}
-
-float network::get_learning_rate() {
-    return _impl->get_learning_rate();
 }
 
 uint32_t network::get_id() {
@@ -294,7 +275,7 @@ Network_impl will always have net_id = 0 when it will be cldnn internal micronet
 opt pass).
 */
 network_impl::network_impl(const program_impl& program, uint16_t stream_id, bool is_internal)
-    : _program(&program), _stream_id(stream_id), _internal(is_internal) {
+    : _program(&program), _stream_id(stream_id), _internal(is_internal), _reset_arguments(true) {
     static std::atomic<uint32_t> id_gen{0};
     if (!_internal) {
         net_id = ++id_gen;
@@ -312,6 +293,10 @@ network_impl::network_impl(const program_impl& program, uint16_t stream_id, bool
 }
 
 network_impl::~network_impl() {
+    for (auto const& prim : _exec_order) {
+        prim->cleanup();
+    }
+
     auto toolkit = get_engine().get_context();
     get_engine().get_memory_pool().clear_pool_for_network(net_id);
     toolkit->release_pending_memory(net_id);
@@ -340,6 +325,16 @@ void network_impl::validate_primitives() {
     }
 }
 
+void network_impl::set_arguments() {
+    if (!_reset_arguments)
+        return;
+
+    for (auto const& prim : _exec_order) {
+        prim->set_arguments();
+    }
+    _reset_arguments = false;
+}
+
 void network_impl::reset_execution(bool wait) {
     if (wait && _events.size() > 0) {
         std::vector<event_impl::ptr> events;
@@ -362,7 +357,7 @@ void network_impl::set_input_data(const primitive_id& id, memory_impl& data) {
     primitive_inst = find_primitive(id);
 
     if (primitive_inst == nullptr)
-        throw std::runtime_error("topology doesn't contain prmitive:" + id);
+        throw std::runtime_error("topology doesn't contain primitive:" + id);
 
     if (primitive_inst->type() != input_layout::type_id()) {
         CLDNN_ERROR_MESSAGE(id, "primitive " + id + " is not an input");
@@ -489,6 +484,7 @@ void network_impl::add_to_exec_order(const primitive_id& id) {
 }
 
 void network_impl::execute(const std::vector<refcounted_obj_ptr<event_impl>>& events) {
+    OV_ITT_SCOPED_TASK(itt::domains::CLDNN, "NetworkImpl::Execute");
     // Wait for previous execution completion
     reset_execution(false);
 
@@ -512,6 +508,8 @@ void network_impl::execute(const std::vector<refcounted_obj_ptr<event_impl>>& ev
     cl_int err;
     cl::SharedSurfLock lock(get_engine().get_context()->queue(get_id()).get(), surfaces, &err);
 
+    set_arguments();
+
     for (auto& inst : _exec_order) {
 #ifdef DEBUG_DUMP_PATH
         auto& node = _program->get_node(inst->id());
@@ -532,6 +530,12 @@ void network_impl::execute(const std::vector<refcounted_obj_ptr<event_impl>>& ev
         }
 #endif
 #endif
+
+        // If a node has mutable input or it's an output, then the input/output buffers might be changed
+        // So we need to set arguments on each execution.
+        if (inst->has_mutable_input() || inst->is_output()) {
+            inst->set_arguments();
+        }
         execute_primitive(inst, events);
 #ifdef DEBUG_DUMP_PATH
 #if DUMP_SINGLE_LAYER
@@ -713,6 +717,13 @@ void network_impl::allocate_primitive_instance(program_node const& node) {
         return;
 
     auto inst = node.type()->create_instance(*this, node);
+    for (auto& dep : node.get_dependencies()) {
+        if (dep->is_type<input_layout>() || dep->is_type<mutable_data>() || dep->can_be_optimized()) {
+            inst->set_mutable_input(true);
+            break;
+        }
+    }
+
     _primitives[node.id()] = inst;
     if (node.is_input())
         _inputs.push_back(inst);
@@ -726,6 +737,7 @@ void network_impl::allocate_primitive_instance(program_node const& node) {
 }
 
 void network_impl::transfer_memory_to_device(std::shared_ptr<primitive_inst> instance, program_node const& node) {
+    OV_ITT_SCOPED_TASK(itt::domains::CLDNN, "NetworkImpl::TransferMemory");
     auto& inst_mem = instance->output_memory();
     auto alloc_type = inst_mem.get_allocation_type();
 
@@ -736,11 +748,13 @@ void network_impl::transfer_memory_to_device(std::shared_ptr<primitive_inst> ins
 
     if (alloc_type == allocation_type::usm_host || alloc_type == allocation_type::usm_shared) {
         // Allocate and transfer memory
+        auto& mem_pool = inst_mem.get_engine()->get_memory_pool();
         auto device_mem = inst_mem.get_engine()->allocate_memory(
             inst_mem.get_layout(),
             allocation_type::usm_device,
             inst_mem.get_net_id());
         dynamic_cast<gpu::gpu_usm&>(*device_mem).copy_from_other(dynamic_cast<gpu::gpu_usm&>(inst_mem));
+        mem_pool.release_memory(&inst_mem, node.id());
         instance->set_output_memory(*device_mem);
     }
 }

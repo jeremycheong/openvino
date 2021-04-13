@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -9,6 +9,8 @@
 extern "C"
 {
 #endif
+
+#include "watchdog/watchdog.h"
 
 #define NC_THERMAL_BUFFER_SIZE 100
 #define NC_DEBUG_BUFFER_SIZE   120
@@ -119,6 +121,7 @@ typedef enum {
     NC_RO_DEVICE_PROTOCOL = 2018,               // returns device protocol (USB, PCIe)
     NC_RW_DEVICE_POWER_CONFIG = 2100,           // writes config for the power manager to device
     NC_RW_DEVICE_POWER_CONFIG_RESET = 2101,     // resets power manager config on device
+    NC_RW_ENABLE_ASYNC_DMA = 2102               // enable/disable asynchronous DMA on device
 } ncDeviceOption_t;
 
 typedef enum {
@@ -158,6 +161,13 @@ struct ncDeviceDescr_t {
     ncDevicePlatform_t platform;
     char name[NC_MAX_NAME_SIZE];
 };
+
+typedef struct ncDeviceOpenParams {
+    WatchdogHndl_t* watchdogHndl;
+    int watchdogInterval;
+    char memoryType;
+    const char* customFirmwareDirectory;
+} ncDeviceOpenParams_t;
 
 typedef enum {
     NC_FIFO_HOST_RO = 0, // fifo can be read through the API but can not be
@@ -201,7 +211,7 @@ MVNC_EXPORT_API ncStatus_t ncSetDeviceConnectTimeout(int deviceConnectTimeoutSec
  *          If NULL or empty, default path searching behavior will be used.
  */
 MVNC_EXPORT_API ncStatus_t ncDeviceOpen(struct ncDeviceHandle_t **deviceHandlePtr,
-    struct ncDeviceDescr_t in_ncDeviceDesc, int watchdogInterval, const char* customFirmwareDirectory);
+    struct ncDeviceDescr_t in_ncDeviceDesc, ncDeviceOpenParams_t deviceOpenParams);
 
 /**
  * @brief Returns a description of all available devices in the system
@@ -215,7 +225,7 @@ MVNC_EXPORT_API ncStatus_t ncAvailableDevices(struct ncDeviceDescr_t *deviceDesc
 /**
  * @brief Close device and destroy handler
  */
-MVNC_EXPORT_API ncStatus_t ncDeviceClose(struct ncDeviceHandle_t **deviceHandle);
+MVNC_EXPORT_API ncStatus_t ncDeviceClose(struct ncDeviceHandle_t **deviceHandle, WatchdogHndl_t* watchdogHndl);
 
 // Graph
 MVNC_EXPORT_API ncStatus_t ncGraphCreate(const char* name, struct ncGraphHandle_t **graphHandle);

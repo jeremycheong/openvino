@@ -1,8 +1,7 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "list.hpp"
 #include "base.hpp"
 #include <vector>
 
@@ -15,12 +14,12 @@ public:
     explicit ReorgYoloImpl(const CNNLayer* layer) {
         try {
             if (layer->insData.size() != 1 || layer->outData.empty())
-                THROW_IE_EXCEPTION << "Incorrect number of input/output edges!";
+                IE_THROW() << "Incorrect number of input/output edges!";
 
             stride = layer->GetParamAsInt("stride");
 
-            addConfig(layer, {DataConfigurator(ConfLayout::PLN)}, {DataConfigurator(ConfLayout::PLN)});
-        } catch (InferenceEngine::details::InferenceEngineException &ex) {
+            addConfig(layer, {DataConfigurator(ConfLayout::PLN, Precision::FP32)}, {DataConfigurator(ConfLayout::PLN, Precision::FP32)});
+        } catch (InferenceEngine::Exception &ex) {
             errorMsg = ex.what();
         }
     }
@@ -64,7 +63,7 @@ private:
     int stride;
 };
 
-REG_FACTORY_FOR(ImplFactory<ReorgYoloImpl>, ReorgYolo);
+REG_FACTORY_FOR(ReorgYoloImpl, ReorgYolo);
 
 }  // namespace Cpu
 }  // namespace Extensions

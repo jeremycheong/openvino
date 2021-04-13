@@ -1,18 +1,6 @@
-/*
-// Copyright (c) 2016-2019 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
 
 //todo move to another folder
 
@@ -76,6 +64,8 @@ template<typename T>
 using VVVVF = std::vector<VVVF<T>>;    // batch of 3d feature maps
 template<typename T>
 using VVVVVF = std::vector<VVVVF<T>>;    // split of bfyx filters
+template<typename T>
+using VVVVVVF = std::vector<VVVVVF<T>>;    // split of bfyx filters
 
 template<typename T>
 inline VF<T> flatten_4d(cldnn::format input_format, VVVVF<T> &data) {
@@ -126,6 +116,33 @@ inline VF<T> flatten_4d(cldnn::format input_format, VVVVF<T> &data) {
 }
 
 template<typename T>
+inline VF<T> flatten_6d(cldnn::format input_format, VVVVVVF<T> &data) {
+    size_t a = data.size();
+    size_t b = data[0].size();
+    size_t c = data[0][0].size();
+    size_t d = data[0][0][0].size();
+    size_t e = data[0][0][0][0].size();
+    size_t f = data[0][0][0][0][0].size();
+    VF<T> vec(a * b * c * d * e * f, (T)(0.0f));
+    size_t idx = 0;
+
+    switch (input_format.value) {
+        case cldnn::format::bfwzyx:
+            for (size_t bi = 0; bi < a; ++bi)
+                for (size_t fi = 0; fi < b; ++fi)
+                    for (size_t wi = 0; wi < c; ++wi)
+                        for (size_t zi = 0; zi < d; ++zi)
+                            for (size_t yi = 0; yi < e; ++yi)
+                                for (size_t xi = 0; xi < f; ++xi)
+                                    vec[idx++] = data[bi][fi][wi][zi][yi][xi];
+            break;
+        default:
+            assert(0);
+    }
+    return vec;
+}
+
+template<typename T>
 std::vector<T> generate_random_1d(size_t a, int min, int max, int k = 8) {
     static std::default_random_engine generator(random_seed);
     // 1/k is the resolution of the floating point numbers
@@ -137,6 +154,36 @@ std::vector<T> generate_random_1d(size_t a, int min, int max, int k = 8) {
         v[i] /= k;
     }
     return v;
+}
+
+template<typename Type>
+std::vector<Type> generate_random_norepetitions_1d(size_t size, int min, int max, float bound = 0.45) {
+    // Rerurn repeatless vector with size = size in range(min, max)
+    static std::default_random_engine generator(random_seed);
+    std::uniform_int_distribution<int> distribution(min, max);
+    std::uniform_real_distribution<float> to_bound_dist(0, bound);
+    std::set<int> repeatless;
+    std::vector<float> v(size, 0);
+    std::vector<Type> res(size);
+    int i = 0;
+    int temp;
+    if (max - min >= int(size) - 1){
+        while (repeatless.size() < size) {
+            temp = distribution(generator);
+            if (repeatless.find(temp) == repeatless.end()) {
+                repeatless.insert(temp);
+                v[i] = (float)temp;
+                i++;
+            }
+        }
+        for (size_t k = 0; k < v.size(); k++) {
+            v[k] += to_bound_dist(generator);
+            res[k] = static_cast<Type>(v[k]);
+        }
+    } else {
+        throw "Array size is bigger than size of range(min, max). Unable to generate array of unique integer numbers";
+    }
+    return res;
 }
 
 template<typename T>
@@ -170,6 +217,14 @@ std::vector<std::vector<std::vector<std::vector<std::vector<T>>>>> generate_rand
     std::vector<std::vector<std::vector<std::vector<std::vector<T>>>>> v(a);
     for (size_t i = 0; i < a; ++i)
         v[i] = generate_random_4d<T>(b, c, d, e, min, max, k);
+    return v;
+}
+
+template<typename T>
+VVVVVVF<T> generate_random_6d(size_t a, size_t b, size_t c, size_t d, size_t e, size_t f, int min, int max, int k = 8) {
+    VVVVVVF<T> v(a);
+    for (size_t i = 0; i < a; ++i)
+        v[i] = generate_random_5d<T>(b, c, d, e, f, min, max, k);
     return v;
 }
 
@@ -217,7 +272,8 @@ void set_values_per_batch_and_feature(const cldnn::memory& mem, std::vector<T> a
 
 }
 
-template<typename T>
+template<typename T, typename std::enable_if<std::is_floating_point<T>::value ||
+                                             std::is_same<T, FLOAT16>::value>::type* = nullptr>
 void set_random_values(const cldnn::memory& mem, bool sign = false, unsigned significand_bit = 8, unsigned scale = 1)
 {
     auto ptr = mem.pointer<T>();
@@ -226,6 +282,19 @@ void set_random_values(const cldnn::memory& mem, bool sign = false, unsigned sig
     for (auto it = ptr.begin(); it != ptr.end(); ++it)
     {
         *it = rnd_generators::gen_number<T>(gen, significand_bit, sign, false, scale);
+    }
+}
+
+template<class T, typename std::enable_if<std::is_integral<T>::value>::type* = nullptr>
+void set_random_values(const cldnn::memory& mem)
+{
+    auto ptr = mem.pointer<T>();
+
+    std::mt19937 gen;
+    static std::uniform_int_distribution<T> uid(std::numeric_limits<T>::min(), std::numeric_limits<T>::max());
+    for (auto it = ptr.begin(); it != ptr.end(); ++it)
+    {
+        *it = uid(gen);
     }
 }
 
@@ -253,15 +322,15 @@ inline void check_exception_massage(const cldnn::engine& engine, cldnn::topology
 // Default values:
 // relative_error_threshold = 1e-3
 // absolute_error_threshold = 1e-6
-// absoulte_error_limit = 1e-4
+// absolute_error_limit = 1e-4
 inline bool are_equal(
     const float ref_item,
     const float item,
     const float relative_error_threshold = 1e-3,
     const float absolute_error_threshold = 1e-6,
-    const float absoulte_error_limit     = 1e-4) {
+    const float absolute_error_limit     = 1e-4) {
 
-        if( fabs(item) < absoulte_error_limit) {
+        if( fabs(item) < absolute_error_limit) {
             if(fabs( item - ref_item ) > absolute_error_threshold) {
                 std::cout << "Ref val: " << ref_item << "\tSecond val: " << item << std::endl;
                 return false;

@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -31,7 +31,7 @@ void PassImpl::run(const Model& model) {
     VPU_PROFILE(splitHwConvAndPool);
 
     const auto& env = CompileEnv::get();
-    const auto cmxLimit = tilingCMXLimit(env.resources.numCMXSlices);
+    const auto cmxLimit = env.resources.tilingCMXLimit;
 
     for (const auto& convStage : model->getStages()) {
         if (convStage == nullptr) {

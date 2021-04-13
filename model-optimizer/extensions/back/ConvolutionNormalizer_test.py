@@ -1,18 +1,6 @@
-"""
- Copyright (C) 2018-2020 Intel Corporation
+# Copyright (C) 2018-2021 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
-      http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
-"""
 import unittest
 
 import numpy as np
@@ -24,7 +12,7 @@ from mo.front.common.partial_infer.utils import int64_array
 from mo.ops.reshape import Reshape
 from mo.utils.ir_engine.compare_graphs import compare_graphs
 from mo.utils.unittest.graph import build_graph, result, regular_op_with_shaped_data, regular_op_with_empty_data, \
-    valued_const_with_data, const_with_data, connect
+    valued_const_with_data, connect
 
 
 def graph_template(weights_initial_shape, new_reshape_shape, limits_initial_shape, limits_new_shape=None):
@@ -36,12 +24,12 @@ def graph_template(weights_initial_shape, new_reshape_shape, limits_initial_shap
     ]
 
     core_nodes = lambda weights_shape, limit_shape, reshape_shape: {
-        **regular_op_with_shaped_data('input', None, {'type': 'Parameter'}),
+        **regular_op_with_shaped_data('input', None, {'type': 'Parameter', 'op': 'Parameter'}),
 
         **valued_const_with_data('weights', np.ones(weights_shape)),
 
-        **const_with_data('dim', int64_array(reshape_shape)),
-        **regular_op_with_shaped_data('reshape', reshape_shape, {'type': 'Reshape', 'infer': Reshape.infer}),
+        **valued_const_with_data('dim', int64_array(reshape_shape)),
+        **regular_op_with_shaped_data('reshape', reshape_shape, {'type': 'Reshape', 'infer': Reshape.infer, 'op': 'Reshape'}),
 
         **valued_const_with_data('il', np.ones(limit_shape)),
         **valued_const_with_data('ih', np.ones(limit_shape)),
@@ -49,9 +37,9 @@ def graph_template(weights_initial_shape, new_reshape_shape, limits_initial_shap
         **valued_const_with_data('oh', np.ones(limit_shape)),
 
         **regular_op_with_shaped_data('FQ', weights_shape, {'type': 'FakeQuantize', 'infer': FakeQuantize.infer,
-                                                            'stop_value_propagation': True, 'levels': 2}),
+                                                            'stop_value_propagation': True, 'levels': 2, 'op': 'FakeQuantize'}),
 
-        **regular_op_with_shaped_data('convolution', None, {'type': 'Convolution'}),
+        **regular_op_with_shaped_data('convolution', None, {'type': 'Convolution', 'op': 'Convolution'}),
 
         **result(),
     }
@@ -118,7 +106,7 @@ class TestV7ConvolutionWithGroupsResolver(unittest.TestCase):
 
             **valued_const_with_data('weights', np.ones([3, 8, 7, 7])),
 
-            **const_with_data('dim', int64_array([24, -1, 7, 7])),
+            **valued_const_with_data('dim', int64_array([24, -1, 7, 7])),
             **regular_op_with_empty_data('reshape', {'type': 'Reshape'}),
 
             **regular_op_with_shaped_data('convolution', None, {'type': 'Convolution', 'group': 3, 'output': 24}),
@@ -169,7 +157,7 @@ class TestV10ConvolutionWithGroupsResolver(unittest.TestCase):
 
             **valued_const_with_data('weights', np.ones([3, 8, 7, 7])),
 
-            **const_with_data('dim', int64_array([3, 8, 1, 7, 7])),
+            **valued_const_with_data('dim', int64_array([3, 8, 1, 7, 7])),
             **regular_op_with_empty_data('reshape', {'type': 'Reshape'}),
 
             **regular_op_with_shaped_data('convolution', None, {'type': 'Convolution', 'group': 3, 'output': 24}),

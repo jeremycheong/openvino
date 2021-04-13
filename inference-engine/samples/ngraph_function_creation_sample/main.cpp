@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -33,6 +33,16 @@ bool ParseAndCheckCommandLine(int argc, char* argv[]) {
 
     if (FLAGS_nt <= 0 || FLAGS_nt > 10) {
         throw std::logic_error("Incorrect value for nt argument. It should be greater than 0 and less than 10.");
+    }
+
+    if (FLAGS_m.empty()) {
+        showUsage();
+        throw std::logic_error("Path to a .bin file with weights for the trained model is required but not set. Please set -m option.");
+    }
+
+    if (FLAGS_i.empty()) {
+        showUsage();
+        throw std::logic_error("Path to an image is required but not set. Please set -i option.");
     }
 
     return true;
@@ -75,7 +85,7 @@ std::shared_ptr<Function> createNgraphFunction() {
     TBlob<uint8_t>::CPtr weightsPtr = ReadWeights(FLAGS_m);
 
     if (weightsPtr->byteSize() != 1724336)
-        THROW_IE_EXCEPTION << "Incorrect weights file";
+        IE_THROW() << "Incorrect weights file";
 
     // -------input------
     std::vector<ptrdiff_t> padBegin{ 0, 0 };
@@ -272,7 +282,8 @@ int main(int argc, char* argv[]) {
         }
 
         /** Setting batch size using image count **/
-        size_t batchSize = 1;
+        network.setBatchSize(imagesData.size());
+        size_t batchSize = network.getBatchSize();
         slog::info << "Batch size is " << std::to_string(batchSize) << slog::endl;
 
         // --------------------------- Prepare output blobs -----------------------------------------------------
@@ -382,6 +393,7 @@ int main(int argc, char* argv[]) {
                 trim(strLine);
                 labels.push_back(strLine);
             }
+            inputFile.close();
         }
 
         ClassificationResult classificationResult(outputBlob, images, batchSize, FLAGS_nt, labels);

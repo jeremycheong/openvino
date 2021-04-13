@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -31,6 +31,10 @@ namespace vpu {
 // DataNode
 //
 
+bool DataNode::isConsumed() const {
+    return numConsumers() > 0 || !childDataToShapeEdges().empty();
+}
+
 Data DataNode::getTopParentData() const {
     Data topParent = this;
     while (auto nextParent = topParent->parentData()) {
@@ -40,9 +44,9 @@ Data DataNode::getTopParentData() const {
 }
 
 DimValues DataNode::strides() const {
-    if (_parentDataEdge != nullptr) {
-        if (_parentDataEdge->mode() == SharedDataMode::ROI) {
-            return _parentDataEdge->parent()->strides();
+    if (_parentDataToDataEdge != nullptr) {
+        if (_parentDataToDataEdge->mode() == SharedDataMode::ROI) {
+            return _parentDataToDataEdge->parent()->strides();
         }
     }
 
@@ -51,7 +55,7 @@ DimValues DataNode::strides() const {
 
 int DataNode::totalByteSize() const {
     // IT doesn't have sence for child Data.
-    IE_ASSERT(_parentDataEdge == nullptr);
+    IE_ASSERT(_parentDataToDataEdge == nullptr);
 
     return calcTotalByteSize(_desc, strides());
 }
@@ -87,8 +91,8 @@ bool DataNode::checkStrides(const StridesRequirement& reqs) const {
 
 void DataNode::updateRequiredStrides(const StridesRequirement& newReqs) {
     // There shouldn't be any Data<->Data edges.
-    IE_ASSERT(_parentDataEdge == nullptr);
-    IE_ASSERT(_childDataEdges.empty());
+    IE_ASSERT(_parentDataToDataEdge == nullptr);
+    IE_ASSERT(_childDataToDataEdges.empty());
 
     auto prevReqs = _requiredStrides;
 
@@ -176,50 +180,77 @@ void DataNode::setShapeAllocationInfo(const ShapeLocation& shapeLocation) {
     _shapeLocation = shapeLocation;
 }
 
+bool DataNode::isShapeAllocated() const {
+    return _shapeLocation != defaultShapeLocation;
+}
+
 void DataNode::serializeBuffer(
         BlobSerializer& serializer) {
-    serializeDescImpl(serializer, _desc, this->strides());
+    serializeDescImpl(serializer, _desc, this->shapeLocation());
 
     serializer.append(checked_cast<uint32_t>(_dataLocation.location));
 
-    if (_dataLocation.location == Location::Input || _dataLocation.location == Location::Output) {
-        auto topParent = getTopParentData();
+    const auto serializeIOParams = [&serializer](const Data& parent) {
+        auto IOIdx = parent->attrs().get<int>("ioIdx");
+        serializer.append(checked_cast<uint32_t>(IOIdx));
 
-        auto ioIdx = topParent->attrs().get<int>("ioIdx");
-        serializer.append(checked_cast<uint32_t>(ioIdx));
-
-        auto parentByteSize = topParent->totalByteSize();
+        auto parentByteSize = parent->totalByteSize();
         serializer.append(checked_cast<uint32_t>(parentByteSize));
+    };
+
+    if (_dataLocation.location == Location::Input || _dataLocation.location == Location::Output) {
+        serializeIOParams(getTopParentData());
+    }
+
+    if (_shapeLocation.dimsLocation == Location::Output) {
+        serializeIOParams(parentDataToShapeEdge()->parent());
+    }
+
+    if (_shapeLocation.stridesLocation == Location::Output) {
+        serializeIOParams(parentDataToShapeEdge()->parent());
     }
 
     serializer.append(checked_cast<uint32_t>(_dataLocation.offset));
 }
 
 void DataNode::serializeIOInfo(BlobSerializer& serializer) const {
-    auto ioIdx = attrs().get<int>("ioIdx");
-    serializer.append(checked_cast<uint32_t>(ioIdx));
+    auto dataIOIdx = attrs().get<int>("ioIdx");
+    serializer.append(checked_cast<uint32_t>(dataIOIdx));
 
     auto ioBufferOffset = attrs().get<int>("ioBufferOffset");
     serializer.append(checked_cast<uint32_t>(ioBufferOffset));
 
     auto nameLength = checked_cast<uint32_t>(_name.length());
-    auto nameLengthAligned = alignVal(nameLength, 16u);
+    auto nameSize = nameLength + 1; // required to support c-string when the name length is multiple of 16
+    auto nameSizeAligned = alignVal(nameSize, 16u);
 
-    serializer.append(nameLengthAligned);
+    serializer.append(nameSizeAligned);
     for (auto c : _name) {
         serializer.append(c);
     }
-    for (uint32_t i = 0; i < nameLengthAligned - nameLength; ++i) {
+    for (uint32_t i = 0; i < nameSizeAligned - nameLength; ++i) {
         serializer.append(uint8_t(0));
     }
 
-    serializeDescImpl(serializer, _desc, strides());
+    auto resShapeLocation = shapeLocation();
+    if (resShapeLocation.dimsLocation != Location::Blob) {
+        auto ioDimsUpperBoundOffset = attrs().get<int>("ioDimsUpperBoundOffset");
+        resShapeLocation.dimsLocation = Location::Blob;
+        resShapeLocation.dimsOffset = ioDimsUpperBoundOffset;
+    }
+    if (resShapeLocation.stridesLocation != Location::Blob) {
+        auto ioStridesUpperBoundOffset = attrs().get<int>("ioStridesUpperBoundOffset");
+        resShapeLocation.stridesLocation = Location::Blob;
+        resShapeLocation.stridesOffset = ioStridesUpperBoundOffset;
+    }
+
+    serializeDescImpl(serializer, _desc, resShapeLocation);
 }
 
 void DataNode::serializeDescImpl(
         BlobSerializer& serializer,
         const DataDesc& storedDesc,
-        const DimValues& storedStrides) const {
+        const ShapeLocation& shapeLocation) const {
     IE_ASSERT(storedDesc.numDims() <= MAX_DIMS_32);
 
     auto storedDimsOrder = storedDesc.dimsOrder();
@@ -232,12 +263,10 @@ void DataNode::serializeDescImpl(
 
     serializer.append(checked_cast<uint32_t>(storedPerm.size()));
 
-    const auto& shape = shapeLocation();
-
-    serializer.append(checked_cast<uint32_t>(shape.dimsLocation));
-    serializer.append(checked_cast<uint32_t>(shape.dimsOffset));
-    serializer.append(checked_cast<uint32_t>(shape.stridesLocation));
-    serializer.append(checked_cast<uint32_t>(shape.stridesOffset));
+    serializer.append(checked_cast<uint32_t>(shapeLocation.dimsLocation));
+    serializer.append(checked_cast<uint32_t>(shapeLocation.dimsOffset));
+    serializer.append(checked_cast<uint32_t>(shapeLocation.stridesLocation));
+    serializer.append(checked_cast<uint32_t>(shapeLocation.stridesOffset));
 }
 
 void printTo(std::ostream& os, const Data& data) {

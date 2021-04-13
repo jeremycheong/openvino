@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -6,7 +6,7 @@
 #include "ngraph_reader_tests.hpp"
 TEST_F(NGraphReaderTests, ReadPadNoPadValue) {
     std::string model = R"V0G0N(
-<net name="Pad" version="10">
+<net name="Network" version="10">
     <layers>
         <layer id="0" name="in1" type="Parameter"  version="opset1">
             <data element_type="f32" shape="1,3,22,22"/>
@@ -20,7 +20,7 @@ TEST_F(NGraphReaderTests, ReadPadNoPadValue) {
             </output>
         </layer>
         <layer id="1" name="data1" precision="I64" type="Const" version="opset1">
-            <data offset="0" size="32"/>
+            <data element_type="i64" offset="0" shape="4" size="32"/>
             <output>
                 <port id="0" precision="I64">
                     <dim>4</dim>
@@ -28,7 +28,7 @@ TEST_F(NGraphReaderTests, ReadPadNoPadValue) {
             </output>
         </layer>
         <layer id="2" name="data2" precision="I64" type="Const" version="opset1">
-            <data offset="32" size="32"/>
+            <data element_type="i64" offset="32" shape="4" size="32"/>
             <output>
                 <port id="0" precision="I64">
                     <dim>4</dim>
@@ -80,7 +80,7 @@ TEST_F(NGraphReaderTests, ReadPadNoPadValue) {
 </net>
 )V0G0N";
     std::string modelV5 = R"V0G0N(
-<net name="Activation" version="5" precision="FP32" batch="1">
+<net name="Network" version="5" precision="FP32" batch="1">
     <layers>
         <layer name="in1" type="Input" precision="FP32" id="0">
             <output>
@@ -134,7 +134,7 @@ TEST_F(NGraphReaderTests, ReadPadNoPadValue) {
 
 TEST_F(NGraphReaderTests, ReadPadWithPadValue) {
     std::string model = R"V0G0N(
-<net name="Pad" version="10">
+<net name="Network" version="10">
     <layers>
         <layer id="0" name="in1" type="Parameter"  version="opset1">
             <data element_type="f32" shape="1,3,22,22"/>
@@ -148,7 +148,7 @@ TEST_F(NGraphReaderTests, ReadPadWithPadValue) {
             </output>
         </layer>
         <layer id="1" name="data1" precision="I64" type="Const" version="opset1">
-            <data offset="0" size="32"/>
+            <data element_type="i64" offset="0" shape="4" size="32"/>
             <output>
                 <port id="0" precision="I64">
                     <dim>4</dim>
@@ -156,7 +156,7 @@ TEST_F(NGraphReaderTests, ReadPadWithPadValue) {
             </output>
         </layer>
         <layer id="2" name="data2" precision="I64" type="Const" version="opset1">
-            <data offset="32" size="32"/>
+            <data element_type="i64" offset="32" shape="4" size="32"/>
             <output>
                 <port id="0" precision="I64">
                     <dim>4</dim>
@@ -164,7 +164,7 @@ TEST_F(NGraphReaderTests, ReadPadWithPadValue) {
             </output>
         </layer>
         <layer id="6" name="data3" precision="FP32" type="Const" version="opset1">
-            <data offset="64" size="8"/>
+            <data element_type="f32" offset="64" shape="" size="8"/>
             <output>
                 <port id="0" precision="FP32">
                 </port>
@@ -218,7 +218,7 @@ TEST_F(NGraphReaderTests, ReadPadWithPadValue) {
 </net>
 )V0G0N";
     std::string modelV5 = R"V0G0N(
-<net name="Activation" version="5" precision="FP32" batch="1">
+<net name="Network" version="5" precision="FP32" batch="1">
     <layers>
         <layer name="in1" type="Input" precision="FP32" id="0">
             <output>

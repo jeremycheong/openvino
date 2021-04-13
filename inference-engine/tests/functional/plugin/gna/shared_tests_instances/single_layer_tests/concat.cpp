@@ -1,4 +1,4 @@
-// Copyright (C) 2019 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -20,22 +20,19 @@ std::vector<std::vector<std::vector<size_t>>> inShapes = {
         {{10, 10, 10, 10}, {10, 10, 10, 10}, {10, 10, 10, 10}, {10, 10, 10, 10}, {10, 10, 10, 10}}
 };
 
-std::vector<InferenceEngine::Precision> inputPrecisions = {InferenceEngine::Precision::FP32,
-//         InferenceEngine::Precision::U8, // TODO: Preferable primitive descriptor is not set.
-//         InferenceEngine::Precision::I8  // TODO: Issue: 26570
-};
-
-
 std::vector<InferenceEngine::Precision> netPrecisions = {InferenceEngine::Precision::FP32,
                                                          InferenceEngine::Precision::FP16};
 
 // TODO: Issue:  26421
-INSTANTIATE_TEST_CASE_P(DISABLED_NoReshape, ConcatLayerTest,
+INSTANTIATE_TEST_CASE_P(DISABLED_smoke_NoReshape, ConcatLayerTest,
                         ::testing::Combine(
                                 ::testing::ValuesIn(axes),
                                 ::testing::ValuesIn(inShapes),
-                                ::testing::ValuesIn(inputPrecisions),
                                 ::testing::ValuesIn(netPrecisions),
+                                ::testing::Values(InferenceEngine::Precision::UNSPECIFIED),
+                                ::testing::Values(InferenceEngine::Precision::UNSPECIFIED),
+                                ::testing::Values(InferenceEngine::Layout::ANY),
+                                ::testing::Values(InferenceEngine::Layout::ANY),
                                 ::testing::Values(CommonTestUtils::DEVICE_GNA)),
                         ConcatLayerTest::getTestCaseName);
 }  // namespace

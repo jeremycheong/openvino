@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -6,7 +6,7 @@
 #include "ngraph_reader_tests.hpp"
 TEST_F(NGraphReaderTests, DISABLED_ReadDeconvolution3DNetwork) {
     std::string model = R"V0G0N(
-<net name="Convolution" version="10">
+<net name="Network" version="10">
     <layers>
         <layer id="0" name="data" type="Parameter" version="opset1">
             <data element_type="f32" shape="1,512,4,4,4"/>
@@ -21,7 +21,7 @@ TEST_F(NGraphReaderTests, DISABLED_ReadDeconvolution3DNetwork) {
             </output>
         </layer>
         <layer id="1" name="embedded_input__const" type="Const" version="opset1">
-            <data offset="0" size="33554432"/>
+            <data element_type="f32" offset="0" shape="512,256,4,4,4" size="33554432"/>
             <output>
                 <port id="1" precision="FP32">
                     <dim>512</dim>
@@ -80,7 +80,7 @@ TEST_F(NGraphReaderTests, DISABLED_ReadDeconvolution3DNetwork) {
 </net>
 )V0G0N";
     std::string modelV5 = R"V0G0N(
-<net name="Convolution" version="5" precision="FP32" batch="1">
+<net name="Network" version="5" precision="FP32" batch="1">
     <layers>
         <layer id="0" name="data" precision="FP32" type="Input">
             <output>
@@ -126,7 +126,7 @@ TEST_F(NGraphReaderTests, DISABLED_ReadDeconvolution3DNetwork) {
 
 TEST_F(NGraphReaderTests, DISABLED_ReadDeconvolution2DNetwork) {
     std::string model = R"V0G0N(
-<net name="Convolution" version="10">
+<net name="Network" version="10">
     <layers>
         <layer id="0" name="data" type="Parameter" version="opset1">
             <data element_type="f32" shape="1,512,4,4"/>
@@ -140,7 +140,7 @@ TEST_F(NGraphReaderTests, DISABLED_ReadDeconvolution2DNetwork) {
             </output>
         </layer>
         <layer id="1" name="embedded_input__const" type="Const" version="opset1">
-            <data offset="0" size="8388608"/>
+            <data element_type="f32" offset="0" shape="512,256,4,4" size="8388608"/>
             <output>
                 <port id="1" precision="FP32">
                     <dim>512</dim>
@@ -194,7 +194,7 @@ TEST_F(NGraphReaderTests, DISABLED_ReadDeconvolution2DNetwork) {
 </net>
 )V0G0N";
     std::string modelV5 = R"V0G0N(
-<net name="Convolution" version="5" precision="FP32" batch="1">
+<net name="Network" version="5" precision="FP32" batch="1">
     <layers>
         <layer id="0" name="data" precision="FP32" type="Input">
             <output>

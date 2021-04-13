@@ -1,17 +1,6 @@
-﻿// Copyright (c) 2016 Intel Corporation
+﻿// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 
 #include "pooling_kernel_gpu_bfyx_block_opt.h"
 
@@ -22,6 +11,8 @@ ParamsKey PoolingKernelGPUBfyxBlockOpt::GetSupportedKey() const {
     k.EnableInputDataType(Datatype::F32);
     k.EnableOutputDataType(Datatype::F16);
     k.EnableOutputDataType(Datatype::F32);
+    k.EnableOutputDataType(Datatype::UINT8);
+    k.EnableOutputDataType(Datatype::INT8);
     k.EnableInputLayout(DataLayout::bfyx);
     k.EnableOutputLayout(DataLayout::bfyx);
     k.EnableTensorOffset();
@@ -40,20 +31,36 @@ ParamsKey PoolingKernelGPUBfyxBlockOpt::GetSupportedKey() const {
 PoolingKernelBase::DispatchData PoolingKernelGPUBfyxBlockOpt::SetDefault(const pooling_params& params) const {
     const auto& output = params.output;
 
-    DispatchData runInfo = PoolingKernelBase::SetDefault(params);
+    DispatchData dispatchData = PoolingKernelBase::SetDefault(params);
 
-    runInfo.gws1 = CeilDiv(output.Y().v, params.poolSize.y);
+    dispatchData.gws[1] = CeilDiv(output.Y().v, params.poolSize.y);
 
-    return runInfo;
+    return dispatchData;
 }
 
-JitConstants PoolingKernelGPUBfyxBlockOpt::GetJitConstants(const pooling_params& params, DispatchData kd) const {
-    auto mem_consts = PoolingKernelBase::GetJitConstants(params, kd);
+JitConstants PoolingKernelGPUBfyxBlockOpt::GetJitConstants(const pooling_params& params, DispatchData dispatchData) const {
+    auto jit = PoolingKernelBase::GetJitConstants(params, dispatchData);
 
-    mem_consts.AddConstant(
+    jit.AddConstant(
         MakeJitConstant("BLOCK_SIZE_Y", params.poolSize.y + params.poolSize.y * params.poolStride.y - 1));
+    jit.Merge(MakeTypeJitConstants(GetActivationType(params), "ACTIVATION"));
+    jit.Merge(MakeTypeJitConstants(GetAccumulatorType(params), "ACCUMULATOR"));
 
-    return mem_consts;
+    if (!params.fused_ops.empty()) {
+        auto input_dt = GetActivationType(params);
+        FusedOpsConfiguration conf = {"",
+                                     {"b", "f", "y + i", "x"},
+                                     "pool_result",
+                                     input_dt,
+                                     1,
+                                     LoadType::LT_UNALIGNED,
+                                     BoundaryCheck::ENABLED,
+                                     IndexType::TENSOR_COORD,
+                                     Tensor::DataChannelName::Y};
+        jit.Merge(MakeFusedOpsJitConstants(params, {conf}));
+    }
+
+    return jit;
 }
 
 bool PoolingKernelGPUBfyxBlockOpt::Validate(const Params& p, const optional_params& o) const {
@@ -71,6 +78,10 @@ bool PoolingKernelGPUBfyxBlockOpt::Validate(const Params& p, const optional_para
 }
 
 KernelsData PoolingKernelGPUBfyxBlockOpt::GetKernelsData(const Params& params, const optional_params& options) const {
-    return GetCommonKernelsData(params, options, FORCE_PRIORITY_8);
+    return GetCommonKernelsData(params, options);
+}
+
+KernelsPriority PoolingKernelGPUBfyxBlockOpt::GetKernelsPriority(const Params& /*params*/, const optional_params& /*options*/) const {
+    return FORCE_PRIORITY_8;
 }
 }  // namespace kernel_selector

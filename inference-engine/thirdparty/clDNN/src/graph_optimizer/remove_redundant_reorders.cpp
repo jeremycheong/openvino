@@ -1,18 +1,6 @@
-/*
-// Copyright (c) 2018 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -22,6 +10,10 @@
 #include <vector>
 #include <list>
 #include <utility>
+
+#include "reshape_inst.h"
+#include "one_hot_inst.h"
+#include "permute_inst.h"
 
 using namespace cldnn;
 
@@ -83,7 +75,9 @@ void remove_redundant_reorders::run(program_impl& p) {
                 continue;
 
             auto output_padded = static_cast<bool>(output_layout.data_padding);
-            auto can_omit_padding = output_layout.format == format::b_fs_yx_fsv16 && input.get_output_layout().format == format::bfyx;
+            auto can_omit_padding = ((output_layout.format == format::b_fs_yx_fsv16 || output_layout.format == format::b_fs_yx_fsv32) &&
+                                    (input.get_output_layout().format == format::bfyx || input.get_output_layout().format == format::b_fs_yx_fsv4)) ||
+                                    (output_layout.format == format::b_fs_zyx_fsv16 && input.get_output_layout().format == format::bfzyx);
 
             if (output_padded && !can_omit_padding) {
                 if (input.get_users().size() != 1)
@@ -163,7 +157,7 @@ void remove_redundant_reorders::run(program_impl& p) {
 
         bool no_output_optimization = remove_output_reorders ?
             r_node.is_output() && (r_node.get_dependency(0).is_output() || r_node.get_dependency(0).is_type<input_layout>() ||
-                r_node.get_dependency(0).can_be_optimized()) : r_node.is_output();
+                r_node.get_dependency(0).can_be_optimized() || r_node.get_dependency(0).get_users().size() != 1) : r_node.is_output();
 
         if (r_node.has_mean() ||
             !r_node.get_primitive()->subtract_per_feature.empty() ||
@@ -178,14 +172,27 @@ void remove_redundant_reorders::run(program_impl& p) {
         // but pads need to be handled correctly.
         if (i_layout.format == format::b_fs_yx_fsv16 && o_layout.format == format::bfyx && !r_node.is_output() &&
             i_layout.size.spatial[0] == 1 && i_layout.size.spatial[1] == 1 &&
-            o_layout.data_padding.upper_size() == (tensor)0 && o_layout.data_padding.lower_size() == (tensor)0) {
+            i_layout.data_padding.upper_size().spatial[0] == 0 && i_layout.data_padding.lower_size().spatial[0] == 0 &&
+            i_layout.data_padding.upper_size().spatial[1] == 0 && i_layout.data_padding.lower_size().spatial[1] == 0 &&
+            o_layout.data_padding.upper_size() == (tensor)0 && o_layout.data_padding.lower_size() == (tensor)0 &&
+            i_layout.data_type == o_layout.data_type) {
             r_node.can_be_optimized(true);
+            r_node.requires_reinterpret(true);
+
+            auto pad_lo = o_layout.data_padding.lower_size();
+            auto pad_hi = o_layout.data_padding.upper_size();
+
+            pad_lo.batch[0] = i_layout.data_padding.lower_size().batch[0];
+            pad_hi.batch[0] = i_layout.data_padding.upper_size().batch[0];
+
+            pad_lo.feature[0] = i_layout.data_padding.lower_size().feature[0];
+            pad_hi.feature[0] = i_layout.data_padding.upper_size().feature[0];
+
             if (i_layout.size.feature[0] % 16 != 0) {
-                auto pad_lo = o_layout.data_padding.lower_size();
-                auto pad_hi = o_layout.data_padding.upper_size();
-                pad_hi.feature[0] = i_layout.size.feature[0] % 16;
-                r_node.merge_output_padding(padding{pad_lo.sizes(), pad_hi.sizes()});
+                pad_hi.feature[0] += 16 - i_layout.size.feature[0] % 16;
             }
+
+            r_node.merge_output_padding(padding{pad_lo.sizes(), pad_hi.sizes()});
             continue;
         }
 
@@ -198,7 +205,13 @@ void remove_redundant_reorders::run(program_impl& p) {
         r_node.can_be_optimized(true);
         r_node.requires_reinterpret(!ident.first);
         if (ident.first) {  // no need of reshape
-            p.add_optimized_primitive_info(r_node.get_primitive()->id);
+            if (r_node.is_output()) {
+                // if removed reorder is output, we need to add it's dependency id to the optimized primitives list,
+                // because it's name will be changed after extract_and_remove call
+                p.add_optimized_primitive_info(r_node.get_dependency(0).get_primitive()->id, {r_node.get_primitive()->id});
+            } else {
+                p.add_optimized_primitive_info(r_node.get_primitive()->id);
+            }
             p.extract_and_remove(
                 r_node);  // try to remove if possible (with respect to r_node not being marked as output)
         }
@@ -254,62 +267,71 @@ void remove_redundant_reorders::run(program_impl& p) {
 
     // This pass removed reorder if previous node can store directly to required layout
     itr = p.get_processing_order().begin();
+    if (enable_reorder_fusing) {
+        while (itr != p.get_processing_order().end()) {
+            auto& node_ptr = *itr++;
+            if (!node_ptr->is_type<reorder>())  // only care for reorders
+                continue;
+
+            auto& node = node_ptr->as<reorder>();
+
+            auto& input = node.input();
+            auto output_layout = node.get_output_layout();
+
+            if (node.is_output())
+                continue;
+
+            if (node.has_mean() || !node.get_primitive()->subtract_per_feature.empty())
+                continue;
+
+            if (!node.get_fused_activations_funcs().empty())
+                continue;
+
+            if (input.get_users().size() != 1 || node.get_users().empty())
+                continue;
+
+            bool same_data_type = input.get_output_layout().data_type == output_layout.data_type;
+            bool allowed_dt_conversion_fuse = (input.is_type<one_hot>()) || (input.is_type<permute>());
+            if (!same_data_type && !allowed_dt_conversion_fuse)
+                continue;
+
+            if (!lo.can_fuse_reorder_to_prev(input, *node.get_users().front(), input.get_output_layout().format, output_layout.format))
+                continue;
+
+            input.set_output_layout(output_layout, false);
+            if (input.type()->does_possible_implementation_exist(p.get_engine(), input)) {
+                p.replace_all_usages(node, input);
+                p.add_optimized_primitive_info(node.id());
+                p.remove_all_connections(node);
+                p.remove_if_dangling(node);
+            }
+        }
+    }
+    // This pass removed reorder if the next node supports reorder's input format and data type doesn't change
+    itr = p.get_processing_order().begin();
     while (itr != p.get_processing_order().end()) {
         auto& node_ptr = *itr++;
-        if (!node_ptr->is_type<reorder>())  // only care for reorders
+        if (!node_ptr->is_type<reorder>() || !node_ptr->is_in_data_flow() || node_ptr->get_users().size() != 1 || node_ptr->get_dependencies().size() != 1)
+            continue;
+
+        auto& usr = node_ptr->get_users().front();
+        auto& dep = node_ptr->get_dependency(0);
+        if (!usr->is_type<quantize>() ||
+            (dep.get_output_layout().format != format::b_fs_yx_fsv16 &&
+             dep.get_output_layout().format != format::fs_b_yx_fsv32 &&
+             dep.get_output_layout().format != format::bfyx))
             continue;
 
         auto& node = node_ptr->as<reorder>();
-
-        auto& input = node.input();
-        auto output_layout = node.get_output_layout();
-
-        if (node.is_output())
-            continue;
-
-        if (node.has_mean() || !node.get_primitive()->subtract_per_feature.empty())
-            continue;
-
-        if (!node.get_fused_activations_funcs().empty())
-            continue;
-
-        if (input.get_users().size() != 1 || node.get_users().empty())
-            continue;
-
-        auto same_data_type = input.get_output_layout().data_type == output_layout.data_type;
+        auto same_data_type = node.input().get_output_layout().data_type == node.get_output_layout().data_type;
         if (!same_data_type)
             continue;
 
-        if (!lo.can_fuse_reorder_to_prev(input, *node.get_users().front(), input.get_output_layout().format, output_layout.format))
-            continue;
-
-        input.set_output_layout(output_layout, false);
-        if (input.type()->does_possible_implementation_exist(p.get_engine(), input)) {
-            p.replace_all_usages(node, input);
-            p.add_optimized_primitive_info(node.id());
-            p.remove_all_connections(node);
-            p.remove_if_dangling(node);
-        }
-    }
-
-    // This pass removed reorder if the next node supports reorder's input format
-    itr = p.get_processing_order().begin();
-    while (itr != p.get_processing_order().end()) {
-        auto& node = *itr++;
-        if (!node->is_type<reorder>() || !node->is_in_data_flow() || node->get_users().size() != 1 || node->get_dependencies().size() != 1)
-            continue;
-
-        auto& usr = node->get_users().front();
-        auto& dep = node->get_dependency(0);
-        if (!usr->is_type<quantize>() || node->get_output_layout().format != format::bfyx ||
-            (dep.get_output_layout().format != format::b_fs_yx_fsv16 && dep.get_output_layout().format != format::fs_b_yx_fsv32))
-            continue;
-
-        dep.merge_output_padding(node->get_output_layout().data_padding);
-        p.replace_all_usages(*node, dep);
-        p.add_optimized_primitive_info(node->id());
-        p.remove_all_connections(*node);
-        p.remove_if_dangling(*node);
+        dep.merge_output_padding(node.get_output_layout().data_padding);
+        p.replace_all_usages(node, dep);
+        p.add_optimized_primitive_info(node.id());
+        p.remove_all_connections(node);
+        p.remove_if_dangling(node);
     }
 
     // This pass removes reorder for Convolution BFYX -> FS_B_YX_FSV32
@@ -339,5 +361,43 @@ void remove_redundant_reorders::run(program_impl& p) {
         p.add_optimized_primitive_info(node->id());
         p.remove_all_connections(*node);
         p.remove_if_dangling(*node);
+    }
+
+    // Additional reshape chains shrink.
+    // This step is needed to handle the cases when the plugin creates patterns like reshape -> reorder -> reshape
+    // So these reshapes are not optimized in handle_reshape pass due to reorder between them,
+    // but the reorder can be removed by one of the steps above, so we can optimize reshapes after that.
+    // In addition this pass can completely remove useless reshapes sequence where the output size is equal to input.
+    itr = p.get_processing_order().begin();
+    while (itr != p.get_processing_order().end()) {
+        auto node = *itr++;
+        if (!node->is_type<reshape>())
+            continue;
+
+        auto& reshape_node = node->as<reshape>();
+        auto& dep_node = reshape_node.get_dependency(0);
+
+        if (!dep_node.is_type<reshape>())
+            continue;
+
+        auto& reshape_input_node = dep_node.as<reshape>();
+
+        bool remove_dep = reshape_input_node.get_users().size() == 1 && !reshape_input_node.is_output() &&
+                          reshape_input_node.get_fused_activations_funcs().empty() && reshape_input_node.get_fused_primitives().empty();
+        bool remove_current = remove_dep && !reshape_input_node.get_dependencies().empty() &&
+                              reshape_input_node.get_dependency(0).get_output_layout().size == reshape_node.get_output_layout().size &&
+                              reshape_node.get_fused_activations_funcs().empty() && reshape_node.get_fused_primitives().empty();
+
+        if (remove_dep) {
+            reshape_input_node.can_be_optimized(true);
+            p.add_optimized_primitive_info(reshape_input_node.id());
+            p.extract_and_remove(reshape_input_node);
+        }
+
+        if (remove_current) {
+            reshape_node.can_be_optimized(true);
+            p.add_optimized_primitive_info(reshape_node.id());
+            p.extract_and_remove(reshape_node);
+        }
     }
 }

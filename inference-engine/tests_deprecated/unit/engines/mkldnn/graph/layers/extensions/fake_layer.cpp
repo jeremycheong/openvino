@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -7,7 +7,6 @@
 #include <map>
 #include <memory>
 #include <algorithm>
-#include "nodes/list.hpp"
 #include "nodes/base.hpp"
 
 using namespace InferenceEngine;
@@ -15,17 +14,12 @@ using namespace Extensions;
 
 struct TestExtensionsHolder {
     std::map<std::string, Cpu::ext_factory> list;
-    std::map<std::string, IShapeInferImpl::Ptr> si_list;
 };
 
 
-class FakeExtensions : public IExtension {
+class FakeExtensions : public Cpu::MKLDNNExtensions {
  public:
     void Unload() noexcept override {};
-
-    void Release() noexcept override {
-        delete this;
-    };
 
     static std::shared_ptr<TestExtensionsHolder> GetExtensionsHolder() {
         static std::shared_ptr<TestExtensionsHolder> localHolder;
@@ -63,21 +57,6 @@ class FakeExtensions : public IExtension {
         factory = factories[cnnLayer->type](cnnLayer);
         return OK;
     }
-    StatusCode getShapeInferTypes(char **&types, unsigned int &size, ResponseDesc *resp) noexcept override {
-        collectTypes(types, size, GetExtensionsHolder()->si_list);
-        return OK;
-    };
-
-    StatusCode getShapeInferImpl(IShapeInferImpl::Ptr &impl, const char *type, ResponseDesc *resp) noexcept override {
-        auto &factories = GetExtensionsHolder()->si_list;
-        if (factories.find(type) == factories.end()) {
-            std::string errorMsg = std::string("Shape Infer Implementation for ") + type + " wasn't found!";
-            if (resp) errorMsg.copy(resp->msg, sizeof(resp->msg) - 1);
-            return NOT_FOUND;
-        }
-        impl = factories[type];
-        return OK;
-    }
 
     template<class T>
     void collectTypes(char **&types, unsigned int &size, const std::map<std::string, T> &factories) {
@@ -92,12 +71,12 @@ class FakeExtensions : public IExtension {
     }
 };
 
- class FakeLayerPLNImpl: public Cpu::ExtLayerBase {
+class FakeLayerPLNImpl: public Cpu::ExtLayerBase {
 public:
     explicit FakeLayerPLNImpl(const CNNLayer* layer) {
         try {
             addConfig(layer, {{ConfLayout::PLN, false, 0}}, {{ConfLayout::PLN, false, 0}});
-        } catch (InferenceEngine::details::InferenceEngineException &ex) {
+        } catch (InferenceEngine::Exception &ex) {
             errorMsg = ex.what();
         }
     }
@@ -118,7 +97,7 @@ public:
             auto blk_layout = ConfLayout::BLK8;
 #endif
             addConfig(layer, {{blk_layout, false, 0}}, {{blk_layout, false, 0}});
-        } catch (InferenceEngine::details::InferenceEngineException &ex) {
+        } catch (InferenceEngine::Exception &ex) {
             errorMsg = ex.what();
         }
     }

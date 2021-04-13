@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -81,6 +81,15 @@ XLinkError_t XLinkConnect(XLinkHandler_t* handler);
  * @return Status code of the operation: X_LINK_SUCCESS (0) for success
  */
 XLinkError_t XLinkBoot(deviceDesc_t* deviceDesc, const char* binaryPath);
+
+/**
+ * @brief Boots specified firmware binary to the remote device
+ * @param deviceDesc - device description structure, obtained from XLinkFind* functions call
+ * @param firmware - firmware buffer
+ * @param length - firmware buffer length
+ * @return Status code of the operation: X_LINK_SUCCESS (0) for success
+ */
+XLinkError_t XLinkBootFirmware(deviceDesc_t* deviceDesc, const char* firmware, unsigned long length);
 
 /**
  * @brief Resets the remote device and close all open local handles for this device

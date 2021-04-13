@@ -1,4 +1,4 @@
-// Copyright (C) 2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -27,10 +27,10 @@ namespace LayerTestsDefinitions {
 
 class BF16NetworkRestore1 : public BasicBF16Test  {
 protected:
-    std::shared_ptr<ngraph::Function> createGraph(InferenceEngine::Precision netPrecision)override {
+    std::shared_ptr<ngraph::Function> createGraph(InferenceEngine::Precision netPrecision) override {
         //   +   Power1(FP32)
         //        |
-        //   +  AvgPooling1(FP32)
+        //   +  AvgPooling1(BF16)
         //        |
         //   + Convolution1(BF16)
         //        |
@@ -45,7 +45,7 @@ protected:
         //                |                         /
         //              ReLU3  (Fused to Conv2)   /
         //                |                     /
-        //             MaxPooling1 (FP32)      /
+        //             MaxPooling1 (BF16)      /
         //                   \            /
         //                      Eltwise
         //                         |
@@ -61,7 +61,7 @@ protected:
         if (netPrecision == Precision::FP32) {
             const1 = opset1::Constant::create(ntype, Shape{1}, { 2.0f });
         } else {
-            const1 = opset1::Constant::create(ntype, Shape{1}, { bfloat16::from_bits(BFloat16Helpers::reducePrecisionBitwiseS(2.0f)) });
+            const1 = opset1::Constant::create(ntype, Shape{1}, { bfloat16::from_bits(FuncTestUtils::Bf16TestUtils::reducePrecisionBitwiseS(2.0f)) });
         }
         auto mulNode = std::make_shared<opset1::Multiply>(input1, const1);
         // add
@@ -69,7 +69,7 @@ protected:
         if (netPrecision == Precision::FP32) {
             const2 = opset1::Constant::create(ntype, Shape{1}, { 1.0f });
         } else {
-            const2 = opset1::Constant::create(ntype, Shape{1}, { bfloat16::from_bits(BFloat16Helpers::reducePrecisionBitwiseS(1.0f)) });
+            const2 = opset1::Constant::create(ntype, Shape{1}, { bfloat16::from_bits(FuncTestUtils::Bf16TestUtils::reducePrecisionBitwiseS(1.0f)) });
         }
         auto addNode = std::make_shared<opset1::Add>(mulNode, const2);
         addNode->set_friendly_name("Power1");
@@ -90,12 +90,12 @@ protected:
         if (netPrecision == Precision::FP32) {
             std::vector<float> weightValuesFP32;
             weightValuesFP32.resize(3 * 3 * 3 * 3);
-            BFloat16Helpers::fillInputsBySinValues(weightValuesFP32.data(), weightValuesFP32.size());
+            FuncTestUtils::fillInputsBySinValues(weightValuesFP32.data(), weightValuesFP32.size());
             weightsNode = std::make_shared<ngraph::opset1::Constant>(ntype, convFilterShape, weightValuesFP32);
         } else {
             std::vector<short> weightValuesBF16;
             weightValuesBF16.resize(3 * 3 * 3 * 3);
-            BFloat16Helpers::fillInputsBySinValues(weightValuesBF16.data(), weightValuesBF16.size());
+            FuncTestUtils::fillInputsBySinValues(weightValuesBF16.data(), weightValuesBF16.size());
             weightsNode = std::make_shared<ngraph::opset1::Constant>(ntype, convFilterShape, weightValuesBF16.data());
         }
 
@@ -170,7 +170,7 @@ protected:
 
         return std::make_shared<ngraph::Function>(ngraph::NodeVector{eltNode2}, ngraph::ParameterVector{input1});
     }
-    void SetUp()override {
+    void SetUp() override {
         std::tie(inputPrecision, netPrecision, inputShapes, newInputShapes, targetDevice) = this->GetParam();
         fnPtr = createGraph(netPrecision);
 
@@ -180,17 +180,17 @@ protected:
         // filling of expected precision of layer execution defined by precisoin of input tensor to the primitive and reflected in
         // performance counters
         expectedPrecisions["Power1"] = "FP32";
-        expectedPrecisions["AvgPooling1"] = "FP32";
+        expectedPrecisions["AvgPooling1"] = "BF16";
         expectedPrecisions["Convolution1"] = "BF16";
         expectedPrecisions["ReLU1"] = "ndef";
         expectedPrecisions["Convolution2"] = "BF16";
         expectedPrecisions["Convolution3"] = "BF16";
-        expectedPrecisions["ReLU2"] = "FP32";
-        expectedPrecisions["Norm1"] = "FP32";
+        expectedPrecisions["ReLU2"] = "BF16";
+        expectedPrecisions["Norm1"] = "BF16";
         expectedPrecisions["Eltwise1"] = "ndef";
         expectedPrecisions["ReLU3"] = "ndef";
-        expectedPrecisions["maxPooling1"] = "FP32";
-        expectedPrecisions["Eltwise2"] = "FP32";
+        expectedPrecisions["maxPooling1"] = "BF16";
+        expectedPrecisions["Eltwise2"] = "BF16";
     }
 };
 
@@ -199,7 +199,7 @@ TEST_P(BF16NetworkRestore1, CompareWithRefImpl) {
 };
 
 
-INSTANTIATE_TEST_CASE_P(BF16_bfloat16_NoReshape, BF16NetworkRestore1,
+INSTANTIATE_TEST_CASE_P(smoke_BF16_bfloat16_NoReshape, BF16NetworkRestore1,
                         ::testing::Combine(
                             ::testing::Values(Precision::FP32),
                             ::testing::Values(Precision::BF16),

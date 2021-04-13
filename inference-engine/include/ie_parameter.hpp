@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -10,7 +10,6 @@
 
 #include <algorithm>
 #include <cctype>
-#include <details/ie_exception.hpp>
 #include <iterator>
 #include <map>
 #include <memory>
@@ -20,7 +19,6 @@
 #include <utility>
 #include <vector>
 
-#include "ie_api.h"
 #include "ie_blob.h"
 
 namespace ngraph {
@@ -52,19 +50,23 @@ public:
     }
 
     /**
+     * @deprecated Use ngraph::Variant directly
      * @brief Creates parameter from variant.
      * This method creates empty parameter if variant doesn't contain Parameter
      *
      * @param var ngraph variant
      */
+    INFERENCE_ENGINE_DEPRECATED("Use ngraph::Variant directly")
     Parameter(const std::shared_ptr<ngraph::Variant>& var);
 
     /**
+     * @deprecated Use ngraph::Variant directly
      * @brief Creates parameter from variant.
      * This method creates empty parameter if variant doesn't contain Parameter
      *
      * @param var ngraph variant
      */
+    INFERENCE_ENGINE_DEPRECATED("Use ngraph::Variant directly")
     Parameter(std::shared_ptr<ngraph::Variant>& var);
 
     /**
@@ -202,19 +204,25 @@ public:
     }
 
     /**
+     * @deprecated Use ngraph::Variant directly
      * @brief Converts parameter to shared pointer on ngraph::Variant
      *
      * @return shared pointer on ngraph::Variant
      */
+    INFERENCE_ENGINE_DEPRECATED("Use ngraph::Variant directly")
     std::shared_ptr<ngraph::Variant> asVariant() const;
 
     /**
+     * @deprecated Use ngraph::Variant directly
      * @brief Casts to shared pointer on ngraph::Variant
      *
      * @return shared pointer on ngraph::Variant
      */
+    INFERENCE_ENGINE_DEPRECATED("Use ngraph::Variant directly")
     operator std::shared_ptr<ngraph::Variant>() const {
+        IE_SUPPRESS_DEPRECATED_START
         return asVariant();
+        IE_SUPPRESS_DEPRECATED_END
     }
 
     /**
@@ -266,7 +274,7 @@ private:
     struct HasOperatorEqual : CheckOperatorEqual<T, EqualTo>::type {};
 
     struct Any {
-#ifdef __clang__
+#ifdef __ANDROID__
         virtual ~Any();
 #else
         virtual ~Any() = default;
@@ -296,12 +304,14 @@ private:
         }
 
         template <class U>
-        typename std::enable_if<!HasOperatorEqual<U>::value, bool>::type equal(const Any& left, const Any& rhs) const {
-            THROW_IE_EXCEPTION << "Parameter doesn't contain equal operator";
+        typename std::enable_if<!HasOperatorEqual<U>::value, bool>::type
+        equal(const Any& left, const Any& rhs) const {
+            IE_THROW() << "Parameter doesn't contain equal operator";
         }
 
         template <class U>
-        typename std::enable_if<HasOperatorEqual<U>::value, bool>::type equal(const Any& left, const Any& rhs) const {
+        typename std::enable_if<HasOperatorEqual<U>::value, bool>::type
+        equal(const Any& left, const Any& rhs) const {
             return dyn_cast<U>(&left) == dyn_cast<U>(&rhs);
         }
 
@@ -312,20 +322,20 @@ private:
 
     template <typename T>
     static T& dyn_cast(Any* obj) {
-        if (obj == nullptr) THROW_IE_EXCEPTION << "Parameter is empty!";
+        if (obj == nullptr) IE_THROW() << "Parameter is empty!";
         return dynamic_cast<RealData<T>&>(*obj).get();
     }
 
     template <typename T>
     static const T& dyn_cast(const Any* obj) {
-        if (obj == nullptr) THROW_IE_EXCEPTION << "Parameter is empty!";
+        if (obj == nullptr) IE_THROW() << "Parameter is empty!";
         return dynamic_cast<const RealData<T>&>(*obj).get();
     }
 
     Any* ptr = nullptr;
 };
 
-#ifdef __clang__
+#ifdef __ANDROID__
 extern template struct INFERENCE_ENGINE_API_CLASS(InferenceEngine::Parameter::RealData<InferenceEngine::Blob::Ptr>);
 extern template struct INFERENCE_ENGINE_API_CLASS(InferenceEngine::Parameter::RealData<int>);
 extern template struct INFERENCE_ENGINE_API_CLASS(InferenceEngine::Parameter::RealData<bool>);
@@ -340,6 +350,6 @@ extern template struct INFERENCE_ENGINE_API_CLASS(
     InferenceEngine::Parameter::RealData<std::tuple<unsigned int, unsigned int>>);
 extern template struct INFERENCE_ENGINE_API_CLASS(
     InferenceEngine::Parameter::RealData<std::tuple<unsigned int, unsigned int, unsigned int>>);
-#endif  // __clang__
+#endif
 
 }  // namespace InferenceEngine

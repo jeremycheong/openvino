@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -8,7 +8,7 @@
 
 TEST_F(NGraphReaderTests, ReadFQNetwork) {
     std::string model = R"V0G0N(
-<net name="FakeQuantize" version="10">
+<net name="Network" version="10">
     <layers>
         <layer id="0" name="in1" type="Parameter" version="opset1">
             <data element_type="f32" shape="1,56,96,168"/>
@@ -22,7 +22,7 @@ TEST_F(NGraphReaderTests, ReadFQNetwork) {
             </output>
         </layer>
         <layer id="1" name="const_1" precision="FP32" type="Const" version="opset1">
-            <data offset="14272" size="224"/>
+            <data element_type="f32" offset="14272" shape="1,56,1,1" size="224"/>
             <output>
                 <port id="0" precision="FP32">
                     <dim>1</dim>
@@ -33,7 +33,7 @@ TEST_F(NGraphReaderTests, ReadFQNetwork) {
             </output>
         </layer>
         <layer id="2" name="const_2" precision="FP32" type="Const" version="opset1">
-            <data offset="14272" size="224"/>
+            <data element_type="f32" offset="14272" shape="1,56,1,1" size="224"/>
             <output>
                 <port id="0" precision="FP32">
                     <dim>1</dim>
@@ -44,7 +44,7 @@ TEST_F(NGraphReaderTests, ReadFQNetwork) {
             </output>
         </layer>
         <layer id="3" name="const_3" precision="FP32" type="Const" version="opset1">
-            <data offset="14496" size="4"/>
+            <data element_type="f32" offset="14496" shape="1,1,1,1" size="4"/>
             <output>
                 <port id="0" precision="FP32">
                     <dim>1</dim>
@@ -55,7 +55,7 @@ TEST_F(NGraphReaderTests, ReadFQNetwork) {
             </output>
         </layer>
         <layer id="4" name="const_4" precision="FP32" type="Const" version="opset1">
-            <data offset="14500" size="4"/>
+            <data element_type="f32" offset="14500" shape="1,1,1,1" size="4"/>
             <output>
                 <port id="0" precision="FP32">
                     <dim>1</dim>
@@ -130,7 +130,7 @@ TEST_F(NGraphReaderTests, ReadFQNetwork) {
 </net>
 )V0G0N";
     std::string modelV5 = R"V0G0N(
-<net name="FakeQuantize" version="5" precision="FP32" batch="1">
+<net name="Network" version="5" precision="FP32" batch="1">
     <layers>
         <layer id="0" name="in1" type="Input" precision="FP32">
             <output>
@@ -254,9 +254,11 @@ TEST_F(NGraphReaderTests, ReadFQNetwork) {
     CommonTestUtils::fill_data(weights->buffer().as<float *>(), weights->size() / sizeof(float));
 
     Core reader;
-    auto nGraph = reader.ReadNetwork(model, weights);
-    CNNNetwork cnn(nGraph);
+    auto cnn = reader.ReadNetwork(model, weights);
+
     IE_SUPPRESS_DEPRECATED_START
-    cnn.begin();
+    // convert to old representation
+    auto convertedNetwork = std::make_shared<details::CNNNetworkImpl>(cnn);
+    (void)convertedNetwork;
     IE_SUPPRESS_DEPRECATED_END
 }

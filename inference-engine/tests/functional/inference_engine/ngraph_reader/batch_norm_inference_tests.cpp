@@ -1,12 +1,12 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
 #include <string>
 #include "ngraph_reader_tests.hpp"
-TEST_F(NGraphReaderTests, ReadBatchNormInferenceNetwork) {
+TEST_F(NGraphReaderTests, DISABLED_ReadBatchNormInferenceNetwork) {
     std::string model = R"V0G0N(
-<net name="BNFusion" version="10">
+<net name="Network" version="10">
     <layers>
         <layer name="in1" type="Parameter" id="0" version="opset1">
             <data element_type="f32" shape="1,3,22,22"/>
@@ -20,7 +20,7 @@ TEST_F(NGraphReaderTests, ReadBatchNormInferenceNetwork) {
             </output>
         </layer>
         <layer id="11" name="conv_weights" type="Const" version="opset1">
-            <data offset="0" size="36" />
+            <data element_type="f32" offset="0" shape="3,3,1,1" size="36"/>
             <output>
                 <port id="0" precision="FP32">
                     <dim>3</dim>
@@ -56,7 +56,7 @@ TEST_F(NGraphReaderTests, ReadBatchNormInferenceNetwork) {
             </output>
         </layer>
         <layer id="1" name="a" type="Const" version="opset1">
-            <data offset="0" size="12"/>
+            <data element_type="f32" offset="0" shape="3" size="12"/>
             <output>
                 <port id="0" precision="FP32">
                     <dim>3</dim>
@@ -64,7 +64,7 @@ TEST_F(NGraphReaderTests, ReadBatchNormInferenceNetwork) {
             </output>
         </layer>
         <layer id="2" name="a1" type="Const" version="opset1">
-            <data offset="12" size="12"/>
+            <data element_type="f32" offset="12" shape="3" size="12"/>
             <output>
                 <port id="0" precision="FP32">
                     <dim>3</dim>
@@ -72,7 +72,7 @@ TEST_F(NGraphReaderTests, ReadBatchNormInferenceNetwork) {
             </output>
         </layer>
         <layer id="3" name="a2" type="Const" version="opset1">
-            <data offset="24" size="12"/>
+            <data element_type="f32" offset="24" shape="3" size="24"/>
             <output>
                 <port id="0" precision="FP32">
                     <dim>3</dim>
@@ -80,15 +80,15 @@ TEST_F(NGraphReaderTests, ReadBatchNormInferenceNetwork) {
             </output>
         </layer>
         <layer id="4" name="a3" type="Const" version="opset1">
-            <data offset="36" size="12"/>
+            <data element_type="f32" offset="36" shape="3" size="12"/>
             <output>
                 <port id="0" precision="FP32">
                     <dim>3</dim>
                 </port>
             </output>
         </layer>
-        <layer name="bn" id="5" type="BatchNormInference" version="opset1">
-            <data eps="0.1" />
+        <layer name="bn" id="5" type="BatchNormInference" version="opset5">
+            <data epsilon="0.1" />
             <input>
                 <port id="1" precision="FP32">
                     <dim>1</dim>
@@ -142,7 +142,7 @@ TEST_F(NGraphReaderTests, ReadBatchNormInferenceNetwork) {
 </net>
 )V0G0N";
     std::string modelV5 = R"V0G0N(
-<net name="BNFusion" version="5" precision="FP32" batch="1">
+<net name="Network" version="5" precision="FP32" batch="1">
     <layers>
         <layer id="0" name="in1" precision="FP32" type="Input">
             <output>
@@ -155,7 +155,7 @@ TEST_F(NGraphReaderTests, ReadBatchNormInferenceNetwork) {
             </output>
         </layer>
         <layer id="3" name="bn" precision="FP32" type="Convolution">
-            <data dilations="1,1" group="1" kernel="1,1" output="3" pads_begin="0,0" pads_end="0,0" strides="1,1"/>
+            <data dilations="1,1" group="1" kernel="1,1" output="3" pads_begin="0,0" pads_end="0,0" strides="1,1" originalLayersNames="bn,conv"/>
             <input>
                 <port id="0">
                     <dim>1</dim>

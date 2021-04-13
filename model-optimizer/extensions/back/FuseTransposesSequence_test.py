@@ -1,18 +1,5 @@
-"""
- Copyright (C) 2018-2020 Intel Corporation
-
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
-      http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
-"""
+# Copyright (C) 2018-2021 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 
 import unittest
 from argparse import Namespace
@@ -31,24 +18,24 @@ nodes_attributes = {
     'placeholder_1_data': {'name': 'placeholder_1_data', 'value': None, 'shape': None, 'kind': 'data',
                            'data_type': None},
     # Transpose layers
-    'const_1': {'value': None, 'kind': 'op', 'type': 'Const'},
+    'const_1': {'value': None, 'kind': 'op', 'type': 'Const', 'op': 'Const'},
     'const_1_data': {'value': None, 'shape': None, 'kind': 'data'},
 
     'permute_1': {'type': 'Transpose', 'value': None, 'kind': 'op', 'op': 'Transpose'},
     'permute_1_data': {'value': None, 'shape': None, 'kind': 'data'},
 
-    'const_2': {'value': None, 'kind': 'op', 'type': 'Const'},
+    'const_2': {'value': None, 'kind': 'op', 'type': 'Const', 'op': 'Const'},
     'const_2_data': {'value': None, 'shape': None, 'kind': 'data'},
 
     'permute_2': {'type': 'Transpose', 'value': None, 'kind': 'op', 'op': 'Transpose'},
     'permute_2_data': {'value': None, 'shape': None, 'kind': 'data'},
 
-    'const_3': {'value': None, 'kind': 'op', 'type': 'Const'},
+    'const_3': {'value': None, 'kind': 'op', 'type': 'Const', 'op': 'Const'},
     'const_3_data': {'value': None, 'shape': None, 'kind': 'data'},
 
     'permute_3': {'type': 'Transpose', 'value': None, 'kind': 'op', 'op': 'Transpose'},
     'permute_3_data': {'value': None, 'shape': None, 'kind': 'data'},
-    'op_output': { 'op': 'Result', 'kind': 'op'}
+    'op_output': {'op': 'Result', 'kind': 'op'}
 }
 
 
@@ -82,7 +69,6 @@ class FuseTransposesSequenceTest(unittest.TestCase):
                              }, nodes_with_edges_only=True)
 
         graph.graph['layout'] = 'NHWC'
-        graph.graph['cmd_params'] = Namespace(keep_shape_ops=False)
 
         graph_ref = build_graph(nodes_attributes,
                                 [('placeholder_1', 'placeholder_1_data'),
@@ -126,7 +112,6 @@ class FuseTransposesSequenceTest(unittest.TestCase):
                              }, nodes_with_edges_only=True)
 
         graph.graph['layout'] = 'NHWC'
-        graph.graph['cmd_params'] = Namespace(keep_shape_ops=False)
 
         graph_ref = build_graph(nodes_attributes,
                                 [('placeholder_1', 'placeholder_1_data'),

@@ -1,20 +1,7 @@
-"""
- Copyright (C) 2018-2020 Intel Corporation
+# Copyright (C) 2018-2021 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
-      http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
-"""
-from extensions.ops.activation_ops import Abs, Acos, Asin, Atan, Ceiling, Cos, Cosh, Elu, Erf, Exp, Floor, ReLU, \
-    LeakyReLU, Log, LogicalNot, Sin, Sinh, Tan, Tanh, Sigmoid
+from extensions.ops.activation_ops import *
 from mo.front.extractor import FrontExtractorOp
 from mo.front.onnx.extractors.utils import onnx_attr
 
@@ -39,6 +26,16 @@ class AcosExtractor(FrontExtractorOp):
         return cls.enabled
 
 
+class AcoshExtractor(FrontExtractorOp):
+    op = 'Acosh'
+    enabled = True
+
+    @classmethod
+    def extract(cls, node):
+        Acosh.update_node_stat(node)
+        return cls.enabled
+
+
 class AsinExtractor(FrontExtractorOp):
     op = 'Asin'
     enabled = True
@@ -49,6 +46,16 @@ class AsinExtractor(FrontExtractorOp):
         return cls.enabled
 
 
+class AsinhExtractor(FrontExtractorOp):
+    op = 'Asinh'
+    enabled = True
+
+    @classmethod
+    def extract(cls, node):
+        Asinh.update_node_stat(node)
+        return cls.enabled
+
+
 class AtanExtractor(FrontExtractorOp):
     op = 'Atan'
     enabled = True
@@ -56,6 +63,16 @@ class AtanExtractor(FrontExtractorOp):
     @classmethod
     def extract(cls, node):
         Atan.update_node_stat(node)
+        return cls.enabled
+
+
+class AtanhExtractor(FrontExtractorOp):
+    op = 'Atanh'
+    enabled = True
+
+    @classmethod
+    def extract(cls, node):
+        Atanh.update_node_stat(node)
         return cls.enabled
 
 
@@ -130,6 +147,17 @@ class FloorExtractor(FrontExtractorOp):
         return cls.enabled
 
 
+class ThresholdedReluExtractor(FrontExtractorOp):
+    op = 'ThresholdedRelu'
+    enabled = True
+
+    @classmethod
+    def extract(cls, node):
+        alpha = onnx_attr(node, 'alpha', 'f', default=1.0)
+        ThresholdedRelu.update_node_stat(node, {'alpha': alpha})
+        return cls.enabled
+
+
 class LeakyReLUExtractor(FrontExtractorOp):
     op = 'LeakyRelu'
     enabled = True
@@ -181,6 +209,16 @@ class SigmoidExtractor(FrontExtractorOp):
     @classmethod
     def extract(cls, node):
         Sigmoid.update_node_stat(node)
+        return cls.enabled
+
+
+class SignExtractor(FrontExtractorOp):
+    op = 'Sign'
+    enabled = True
+
+    @classmethod
+    def extract(cls, node):
+        Sign.update_node_stat(node)
         return cls.enabled
 
 

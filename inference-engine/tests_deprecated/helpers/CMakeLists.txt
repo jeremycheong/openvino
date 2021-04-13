@@ -1,4 +1,4 @@
-# Copyright (C) 2018-2020 Intel Corporation
+# Copyright (C) 2018-2021 Intel Corporation
 # SPDX-License-Identifier: Apache-2.0
 #
 
@@ -21,15 +21,15 @@ function(add_helpers target_name)
 
     target_include_directories(${target_name} PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}"
                                                      "${IE_MAIN_SOURCE_DIR}/src/inference_engine"
-                                                     $<TARGET_PROPERTY:inference_engine_ir_readers,INTERFACE_INCLUDE_DIRECTORIES>
-                                                     $<TARGET_PROPERTY:inference_engine_lp_transformations,INTERFACE_INCLUDE_DIRECTORIES>
                                                      $<TARGET_PROPERTY:pugixml,INTERFACE_INCLUDE_DIRECTORIES>
                                                      "${IE_MAIN_SOURCE_DIR}/src/vpu/"
+                                                     "${IE_MAIN_SOURCE_DIR}/src/plugin_api"
+                                                     "${IE_MAIN_SOURCE_DIR}/src/legacy_api/include"
                                              PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 
     # TODO: eliminate dependency on samples
     target_include_directories(${target_name} PUBLIC
-        "${IE_MAIN_SOURCE_DIR}/samples/common/os/windows")
+        "${IE_MAIN_SOURCE_DIR}/samples/common/utils/include/samples/os/windows")
 
     set_property(TARGET ${target_name} PROPERTY COMPILE_PDB_NAME ${target_name})
 
@@ -37,7 +37,14 @@ function(add_helpers target_name)
 endfunction()
 
 add_helpers(${TARGET_NAME})
+
 target_link_libraries(${TARGET_NAME} PUBLIC commonTestUtils)
 
 add_helpers(${TARGET_NAME}_s USE_STATIC_IE)
+
 target_link_libraries(${TARGET_NAME}_s PUBLIC commonTestUtils_s)
+
+if (ENABLE_DATA)
+    add_dependencies(${TARGET_NAME} data)
+    add_dependencies(${TARGET_NAME}_s data)
+endif()

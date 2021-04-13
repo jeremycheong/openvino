@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -10,7 +10,7 @@
 // strided_slice_to_crop transformation
 TEST_F(NGraphReaderTests, ConvertStridedSliceToCrop) {
     std::string model_version10 = R"V0G0N(
-<net name="Reshape" version="10">
+<net name="Network" version="10">
     <layers>
         <layer id="0" name="data" type="Parameter" version="opset1">
             <data element_type="f32" shape="300,90,1,4"/>
@@ -24,7 +24,7 @@ TEST_F(NGraphReaderTests, ConvertStridedSliceToCrop) {
             </output>
         </layer>
 		<layer id="1" name="Begin" precision="I64" type="Const" version="opset1">
-			<data offset="0" size="32"/>
+			<data element_type="i64" offset="0" shape="4" size="32"/>
 			<output>
 				<port id="0" precision="I64">
 					<dim>4</dim>
@@ -32,7 +32,7 @@ TEST_F(NGraphReaderTests, ConvertStridedSliceToCrop) {
 			</output>
 		</layer>
         <layer id="2" name="End" precision="I64" type="Const" version="opset1">
-			<data offset="32" size="32"/>
+			<data element_type="i64" offset="32" shape="4" size="32"/>
 			<output>
 				<port id="0" precision="I64">
 					<dim>4</dim>
@@ -40,7 +40,7 @@ TEST_F(NGraphReaderTests, ConvertStridedSliceToCrop) {
 			</output>
 		</layer>
         <layer id="3" name="Strides" precision="I64" type="Const" version="opset1">
-			<data offset="64" size="32"/>
+			<data element_type="i64" offset="64" shape="4" size="32"/>
 			<output>
 				<port id="0" precision="I64" >
 					<dim>4</dim>
@@ -96,7 +96,7 @@ TEST_F(NGraphReaderTests, ConvertStridedSliceToCrop) {
     </net>
     )V0G0N";
     std::string model_version6 = R"V0G0N(
-<net name="Reshape" version="6" batch="300">
+<net name="Network" version="6" batch="300">
     <layers>
         <layer name="data" type="Input" precision="FP32" id="0">
             <output>
@@ -174,7 +174,7 @@ TEST_F(NGraphReaderTests, DISABLED_ConvertStridedSliceToCropMultipleMasks) {
     // # (1, 9, 9, 9, 9, 2, 1, 2, 2) without shrink
     // # (1, 9, 9, 9, 9, 1, 2, 2) with shrink
     std::string model_version10 = R"V0G0N(
-<net name="Reshape" version="10">
+<net name="Network" version="10">
     <layers>
         <layer id="0" name="data" type="Parameter" version="opset1">
             <data element_type="f32" shape="9,9,9,9,9,9,9"/>
@@ -191,7 +191,7 @@ TEST_F(NGraphReaderTests, DISABLED_ConvertStridedSliceToCropMultipleMasks) {
             </output>
         </layer>
 		<layer id="1" name="Begin" precision="I64" type="Const" version="opset1">
-			<data offset="0" size="48"/>
+			<data element_type="i64" offset="0" shape="6" size="48"/>
 			<output>
 				<port id="0">
 					<dim>6</dim>
@@ -199,7 +199,7 @@ TEST_F(NGraphReaderTests, DISABLED_ConvertStridedSliceToCropMultipleMasks) {
 			</output>
 		</layer>
         <layer id="2" name="End" precision="I64" type="Const" version="opset1">
-			<data offset="48" size="48"/>
+			<data element_type="i64" offset="48" shape="6" size="48"/>
 			<output>
 				<port id="0">
 					<dim>6</dim>
@@ -207,7 +207,7 @@ TEST_F(NGraphReaderTests, DISABLED_ConvertStridedSliceToCropMultipleMasks) {
 			</output>
 		</layer>
         <layer id="3" name="Strides" precision="I64" type="Const" version="opset1">
-			<data offset="96" size="48"/>
+			<data element_type="i64" offset="96" shape="6" size="48"/>
 			<output>
 				<port id="0">
 					<dim>6</dim>
@@ -274,7 +274,7 @@ TEST_F(NGraphReaderTests, DISABLED_ConvertStridedSliceToCropMultipleMasks) {
 </net>
 )V0G0N";
     std::string model_version6 = R"V0G0N(
-<net name="Reshape" version="6" batch="9">
+<net name="Network" version="6" batch="9">
 	<layers>
 		<layer name="data" type="Input" precision="FP32" id="0">
 			<output>
@@ -430,7 +430,7 @@ TEST_F(NGraphReaderTests, DISABLED_ConvertStridedSliceToCropMultipleMasks) {
 // TODO delete this check in ngraph "Check 'static_cast<size_t>(data_rank) == mask_size'
 TEST_F(NGraphReaderTests, DISABLED_ConvertStridedSliceToCropMultipleMasks_2) {
     std::string model_version10 = R"V0G0N(
-<net name="Reshape" version="10">
+<net name="Network" version="10">
     <layers>
         <layer id="0" name="data" type="Parameter" version="opset1">
             <data element_type="f32" shape="9,9,9,9,9,9,9"/>
@@ -447,7 +447,7 @@ TEST_F(NGraphReaderTests, DISABLED_ConvertStridedSliceToCropMultipleMasks_2) {
             </output>
         </layer>
 		<layer id="1" name="Begin" precision="I64" type="Const" version="opset1">
-			<data offset="0" size="64"/>
+			<data element_type="i64" offset="0" shape="8" size="64"/>
 			<output>
 				<port id="0">
 					<dim>8</dim>
@@ -455,7 +455,7 @@ TEST_F(NGraphReaderTests, DISABLED_ConvertStridedSliceToCropMultipleMasks_2) {
 			</output>
 		</layer>
         <layer id="2" name="End" precision="I64" type="Const" version="opset1">
-			<data offset="64" size="64"/>
+			<data element_type="i64" offset="64" shape="8" size="64"/>
 			<output>
 				<port id="0">
 					<dim>8</dim>
@@ -463,7 +463,7 @@ TEST_F(NGraphReaderTests, DISABLED_ConvertStridedSliceToCropMultipleMasks_2) {
 			</output>
 		</layer>
         <layer id="3" name="Strides" precision="I64" type="Const" version="opset1">
-			<data offset="128" size="64"/>
+			<data element_type="i64" offset="128" shape="8" size="64"/>
 			<output>
 				<port id="0">
 					<dim>8</dim>
@@ -536,7 +536,7 @@ TEST_F(NGraphReaderTests, DISABLED_ConvertStridedSliceToCropMultipleMasks_2) {
 </net>
 )V0G0N";
     std::string model_version6 = R"V0G0N(
-<net name="Reshape" version="6" batch="9">
+<net name="Network" version="6" batch="9">
 	<layers>
 		<layer name="data" type="Input" precision="FP32" id="0">
 			<output>

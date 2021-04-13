@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -9,8 +9,10 @@
 
 namespace ngraph {
 
+template class INFERENCE_ENGINE_API_CLASS(VariantImpl<InferenceEngine::Parameter>);
+
 template <>
-class VariantWrapper<InferenceEngine::Parameter> : public VariantImpl<InferenceEngine::Parameter> {
+class INFERENCE_ENGINE_API_CLASS(VariantWrapper<InferenceEngine::Parameter>) : public VariantImpl<InferenceEngine::Parameter> {
 public:
     static constexpr VariantTypeInfo type_info {"Variant::InferenceEngine::Parameter", 0};
     const VariantTypeInfo& get_type_info() const override {

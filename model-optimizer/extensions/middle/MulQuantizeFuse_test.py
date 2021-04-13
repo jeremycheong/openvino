@@ -1,18 +1,5 @@
-"""
- Copyright (C) 2018-2020 Intel Corporation
-
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
-      http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
-"""
+# Copyright (C) 2018-2021 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 
 import unittest
 
@@ -46,7 +33,7 @@ nodes = {
     'ma_o': {'op': 'Const', 'type': 'Const', 'kind': 'op', 'value': None, 'shape': None},
     'ma_o_data': {'value': np.array([]), 'shape': np.array([]), 'kind': 'data'},
 
-    'quantize': {'type': 'FakeQuantize', 'kind': 'op', 'op': 'FakeQuantize', 'levels': 2, 'keep_in_IR': True},
+    'quantize': {'type': 'FakeQuantize', 'kind': 'op', 'op': 'FakeQuantize', 'levels': 2},
     'quantize_data': {'value': None, 'shape': np.array([1, 64, 56, 56]), 'kind': 'data'},
 
     'output': {'op': 'Result', 'kind': 'op'},

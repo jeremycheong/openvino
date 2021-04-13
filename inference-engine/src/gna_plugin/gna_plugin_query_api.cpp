@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -24,6 +24,10 @@ Parameter GNAPlugin::GetMetric(const std::string& name, const std::map<std::stri
     const std::unordered_map<std::string, std::function<Parameter()>> queryApiSupported = {
         {METRIC_KEY(AVAILABLE_DEVICES), [this]() {return GetAvailableDevices();}},
         {METRIC_KEY(SUPPORTED_CONFIG_KEYS), [this]() {return config.GetSupportedKeys();}},
+        {METRIC_KEY(OPTIMAL_NUMBER_OF_INFER_REQUESTS), [this]() {
+            uint32_t nireq = 1;
+            return nireq;
+        }},
         {METRIC_KEY(FULL_DEVICE_NAME), [&options, this]() {
             auto availableDevices = GetAvailableDevices().as<std::vector<std::string>>();
 
@@ -32,8 +36,8 @@ Parameter GNAPlugin::GetMetric(const std::string& name, const std::map<std::stri
             }
 
             if (!options.count(KEY_DEVICE_ID)) {
-                if (availableDevices.size() == 1) {
-                    return availableDevices[0];
+                if (availableDevices.size() == 1 || availableDevices.size() == 2) {
+                    return availableDevices.back(); // detection order is GNA_SW, GNA_HW
                 } else {
                     THROW_GNA_EXCEPTION << "KEY_DEVICE_ID not set in request for FULL_DEVICE_NAME";
                 }
@@ -42,13 +46,15 @@ Parameter GNAPlugin::GetMetric(const std::string& name, const std::map<std::stri
             auto deviceName = options.at(KEY_DEVICE_ID).as<std::string>();
             return deviceName;
         }},
+        {METRIC_KEY(GNA_LIBRARY_FULL_VERSION), [this]() {return GNADeviceHelper::GetGnaLibraryVersion();}},
         {METRIC_KEY(SUPPORTED_METRICS), [&queryApiSupported, this]() {
             std::vector<std::string> availablesMetrics;
             for (auto && supportedAPI : queryApiSupported) {
                 availablesMetrics.push_back(supportedAPI.first);
             }
             return availablesMetrics;
-        }}
+        }},
+        {METRIC_KEY(IMPORT_EXPORT_SUPPORT), []() {return true;}}
     };
 
     auto it = queryApiSupported.find(name);
@@ -63,24 +69,16 @@ Parameter GNAPlugin::GetAvailableDevices() const {
     std::vector<std::string> devices;
     // probing for gna-sw-exact, or gna-sw implementation part of libgna
     try {
-#if GNA_LIB_VER == 2
-        GNADeviceHelper swHelper(Gna2AccelerationModeSoftware);
-#else
-        GNADeviceHelper swHelper(GNA_SOFTWARE);
-#endif
+        GNADeviceHelper swHelper;
         devices.push_back("GNA_SW");
     }catch(...) {}
 
     try {
-#if GNA_LIB_VER == 2
-        GNADeviceHelper hwHelper(Gna2AccelerationModeHardware);
-#else
-        GNADeviceHelper hwHelper(GNA_HARDWARE);
-#endif
+        GNADeviceHelper hwHelper;
 #if GNA_LIB_VER == 1
         try {
             intel_nnet_type_t neuralNetwork = { 0 };
-            hwHelper.propagate(&neuralNetwork, nullptr, 0);
+            hwHelper.propagate(&neuralNetwork, nullptr, 0, GNA_HARDWARE);
         }catch (...) {
             if (hwHelper.getGNAStatus() != GNA_DEVNOTFOUND) {
                 devices.push_back("GNA_HW");

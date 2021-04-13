@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -7,11 +7,9 @@
 #include "mkldnn_graph.h"
 #include "mkldnn_graph_dumper.h"
 #include "ie_blob.h"
-#include "ie_util_internal.hpp"
-#include "details/ie_cnn_network_tools.h"
+#include <legacy/details/ie_cnn_network_tools.h>
 #include "common_test_utils/xml_net_builder/xml_net_builder.hpp"
-#include "graph_tools.hpp"
-#include <cpp/ie_cnn_net_reader.h>
+#include <ie_core.hpp>
 
 #include <string>
 #include <map>
@@ -57,11 +55,8 @@ public:
     }
 
     CNNNetwork net() {
-        CNNNetReader net_reader;
-        net_reader.ReadNetwork(model.data(), model.length());
-        net_reader.SetWeights(weights);
-
-        return net_reader.getNetwork();
+        InferenceEngine::Core core;
+        return core.ReadNetwork(model, weights);
     }
 };
 
@@ -69,10 +64,12 @@ TEST(MKLDNNLayersTests, DumpSimpleGraph) {
     auto net = NetGen().net();
     MKLDNNGraph graph;
     MKLDNNExtensionManager::Ptr extMgr;
-    graph.CreateGraph(net, extMgr);
+    MKLDNNWeightsSharing::Ptr cache;
+
+    graph.CreateGraph(net, extMgr, cache);
 
     auto dump_net = dump_graph_as_ie_net(graph);
-    auto layers = details::CNNNetSortTopologically(*dump_net);
+    auto layers = details::CNNNetSortTopologically(dump_net);
 
     ASSERT_EQ(layers.size(), 4);
     ASSERT_EQ(layers[0]->type, "Input");
@@ -85,7 +82,8 @@ TEST(MKLDNNLayersTests, DumpSimpleGraphToDot) {
     auto net = NetGen().net();
     MKLDNNGraph graph;
     MKLDNNExtensionManager::Ptr extMgr;
-    graph.CreateGraph(net, extMgr);
+    MKLDNNWeightsSharing::Ptr cache;
+    graph.CreateGraph(net, extMgr, cache);
 
     std::stringstream buff;
     dump_graph_as_dot(graph, buff);

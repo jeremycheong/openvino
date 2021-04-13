@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -16,7 +16,7 @@ class MKLDNNEltwiseNode;
 
 class MKLDNNConvolutionNode : public MKLDNNNode {
 public:
-    MKLDNNConvolutionNode(const InferenceEngine::CNNLayerPtr& layer, const mkldnn::engine& eng, int socket);
+    MKLDNNConvolutionNode(const InferenceEngine::CNNLayerPtr& layer, const mkldnn::engine& eng, MKLDNNWeightsSharing::Ptr &cache);
     ~MKLDNNConvolutionNode() override = default;
 
     void getSupportedDescriptors() override;
@@ -25,10 +25,14 @@ public:
     void initDescriptor(const InferenceEngine::LayerConfig& config) override;
     void createPrimitive() override;
     void initSupportedPrimitiveDescriptors() override;
+    void filterSupportedPrimitiveDescriptors() override;
+    void filterSupportedDescriptors();
+    bool isPossibleToSkipInitConfig(MKLDNNDescriptor &desc);
     bool created() const override;
     bool canBeInPlace() const override {
         return false;
     }
+
     void setPostOps(mkldnn::primitive_attr &attr, bool initWeights);
 
     size_t descInputNumbers(MKLDNNDescriptor desc) override {
@@ -46,6 +50,8 @@ public:
 
     bool canBeExecutedInInt8();
 
+    InferenceEngine::Precision getRuntimePrecision() const override;
+
     std::vector<uint8_t> inputZeroPoints;
     std::vector<float> weightsZeroPoints;
     std::vector<int32_t> outputCompensation;
@@ -59,7 +65,6 @@ private:
     void addZeroPoints(mkldnn::primitive_attr& attr) const;
 
     bool withBiases;
-    bool withActivation;
     bool withSum;
     bool withDWConv;
     bool isDW;

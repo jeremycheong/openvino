@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -6,7 +6,7 @@
 #include "ngraph_reader_tests.hpp"
 TEST_F(NGraphReaderTests, ReadGatherTreeNetwork) {
     std::string model = R"V0G0N(
-<net name="GatherTree" version="10">
+<net name="Network" version="10">
     <layers>
         <layer id="0" name="in1" type="Parameter"  version="opset1">
             <data element_type="f32" shape="100,1,10"/>
@@ -37,7 +37,7 @@ TEST_F(NGraphReaderTests, ReadGatherTreeNetwork) {
             </output>
         </layer>
         <layer id="3" name="const1" type="Const" version="opset1">
-            <data offset="0" size="4"/>
+            <data element_type="f32" offset="0" shape="" size="4"/>
             <output>
                 <port id="0" precision="FP32">
                 </port>
@@ -89,7 +89,7 @@ TEST_F(NGraphReaderTests, ReadGatherTreeNetwork) {
 </net>
 )V0G0N";
     std::string modelV5 = R"V0G0N(
-<net name="Activation" version="5" precision="FP32" batch="1">
+<net name="Network" version="5" precision="FP32" batch="1">
     <layers>
         <layer id="0" name="in1" type="Input" >
             <output>

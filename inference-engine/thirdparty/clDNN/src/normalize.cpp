@@ -1,18 +1,6 @@
-/*
-// Copyright (c) 2016-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
 
 #include "normalize_inst.h"
 #include "primitive_type_base.h"
@@ -29,7 +17,16 @@ primitive_type_id normalize::type_id() {
 layout normalize_inst::calc_output_layout(normalize_node const& node) {
     assert(static_cast<bool>(node.get_primitive()->output_data_type) == false &&
            "Output data type forcing is not supported for normalize_node!");
-    return node.input().get_non_padded_output_layout();
+    auto input_node_layout = node.input().get_non_padded_output_layout();
+    auto output_type = input_node_layout.data_type;
+
+    if (node.has_fused_primitives()) {
+        output_type = node.get_fused_output_layout().data_type;
+    } else if (input_node_layout.data_type == data_types::u8 || input_node_layout.data_type == data_types::i8) {
+        output_type = data_types::f32;
+    }
+
+    return layout(output_type, input_node_layout.format, input_node_layout.size);
 }
 
 std::string normalize_inst::to_string(normalize_node const& node) {

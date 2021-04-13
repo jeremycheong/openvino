@@ -1,18 +1,6 @@
-/*
-// Copyright (c) 2019 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -40,13 +28,19 @@ void handle_reshape::run(program_impl& p) {
     while (node_itr != p.get_processing_order().end()) {
         auto node = (*node_itr++);
         program_helpers::do_for_types<reshape>(*node, [&p](reshape_node& node) {
-            auto input_lay = node.input().get_output_layout();
+            auto& input_node = node.input();
+            auto input_lay = input_node.get_output_layout();
             auto output_lay = node.get_output_layout();
 
             if (!node.is_in_place())
                 return;
 
-            if (program_helpers::are_layouts_identical(input_lay, output_lay).first) {
+            auto are_layouts_identical = program_helpers::are_layouts_identical(input_lay, output_lay);
+            if (are_layouts_identical.first) {
+                p.add_optimized_primitive_info(node.id());
+                p.extract_and_remove(node);
+            } else if (are_layouts_identical.second && input_node.is_type<data>()) {
+                input_node.set_output_layout(output_lay, false);
                 p.add_optimized_primitive_info(node.id());
                 p.extract_and_remove(node);
             }
@@ -125,10 +119,16 @@ void handle_reshape::run(program_impl& p) {
                 for (const auto& reorder_node : reorder_node_to_split) {
                     auto& reorder_reshape_node = reorder_reshape_nodes[reshape_reorder_id];
                     auto reshape_in_layout = reorder_node->get_output_layout();
+                    auto dims = cldnn::format::dimension(reshape_in_layout.format);
+                    auto format = cldnn::format::bfyx;
+                    if (dims == 5)
+                        format = cldnn::format::bfzyx;
+                    else if (dims == 6)
+                        format = cldnn::format::bfwzyx;
                     auto reshape_input = std::make_shared<reorder>(
                         "reorder:_reshape_input_" + reorder_node->id() + "_" + reorder_reshape_node->id(),
                         input_node.id(),
-                        reshape_in_layout.format,
+                        format,
                         reshape_in_layout.data_type);
                     auto& reshape_input_node = p.get_or_create(reshape_input);
                     p.add_intermediate(reshape_input_node,

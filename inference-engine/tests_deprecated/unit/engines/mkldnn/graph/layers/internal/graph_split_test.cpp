@@ -1,19 +1,13 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
-
-#include <gtest/gtest.h>
-#include <gmock/gmock-spec-builders.h>
-#include "mkldnn_graph.h"
 
 #include "test_graph.hpp"
 
 #include "single_layer_common.hpp"
-#include <mkldnn_extension_utils.h>
-#include <cnn_network_impl.hpp>
 #include "tests_common.hpp"
 
-#include <cpp/ie_cnn_net_reader.h>
+#include <ie_core.hpp>
 #include <ie_plugin_config.hpp>
 
 using namespace ::testing;
@@ -168,11 +162,12 @@ protected:
             split_test_params p = ::testing::WithParamInterface<split_test_params>::GetParam();
             std::string model = getModel(p);
 
-            InferenceEngine::CNNNetReader net_reader;
-            net_reader.ReadNetwork(model.data(), model.length());
+            InferenceEngine::Core core;
+            InferenceEngine::CNNNetwork network;
+            network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr());
 
             MKLDNNGraphTestClass graph;
-            graph.CreateGraph(net_reader.getNetwork());
+            graph.CreateGraph(network);
             auto& nodes = graph.getNodes();
             for (int i = 0; i < nodes.size(); i++) {
                 if (nodes[i]->getType() == MKLDNNPlugin::Split) {
@@ -186,7 +181,7 @@ protected:
             }
             ASSERT_LE(3, nodes.size());
 
-            InferenceEngine::Blob::Ptr src = InferenceEngine::make_shared_blob<float>(net_reader.getNetwork().getInputsInfo().begin()->second->getTensorDesc());
+            InferenceEngine::Blob::Ptr src = InferenceEngine::make_shared_blob<float>(network.getInputsInfo().begin()->second->getTensorDesc());
             src->allocate();
             fill_data(src->buffer(), src->size());
 
@@ -199,7 +194,7 @@ protected:
                 FAIL() << "Cannot cast blob to TBlob<float>.";
 
             InferenceEngine::OutputsDataMap out;
-            out = net_reader.getNetwork().getOutputsInfo();
+            out = network.getOutputsInfo();
             InferenceEngine::BlobMap outputBlobs;
             std::vector<InferenceEngine::TBlob<float>> dst_refs;
             for (auto& item : out) {
@@ -221,7 +216,7 @@ protected:
             for (auto& output : outputBlobs) {
                 compare(*output.second, dst_refs[ref_idx++], 0.0005f);
             }
-        } catch (const InferenceEngine::details::InferenceEngineException &e) {
+        } catch (const InferenceEngine::Exception &e) {
             FAIL() << e.what();
         }
     }
@@ -235,171 +230,75 @@ INSTANTIATE_TEST_CASE_P(
                 split_test_params {
                         {1, 24, 2, 5},
                         {{1, 16, 2, 5}, {1, 8, 2, 5}},
-                        1, 3, MKLDNNPlugin::impl_desc_type::unknown, {}, {
-                                [](MKLDNNPlugin::PrimitiveDescInfo impl) {
-                                    ASSERT_EQ(MKLDNNPlugin::impl_desc_type::ref, impl.getImplementationType());
-                                    ASSERT_EQ(1, impl.getConfig().inConfs.size());
-                                    ASSERT_EQ(2, impl.getConfig().outConfs.size());
-                                    ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().inConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().outConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().outConfs.at(1).desc.getLayout());
-                                },
-                                [](MKLDNNPlugin::PrimitiveDescInfo impl) {
-                                    ASSERT_EQ(MKLDNNPlugin::impl_desc_type::unknown, impl.getImplementationType());
-                                    ASSERT_EQ(1, impl.getConfig().inConfs.size());
-                                    ASSERT_EQ(2, impl.getConfig().outConfs.size());
-                                    ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().inConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().outConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().outConfs.at(1).desc.getLayout());
-                                },
-                                [](MKLDNNPlugin::PrimitiveDescInfo impl) {
-                                    ASSERT_EQ(MKLDNNPlugin::impl_desc_type::unknown, impl.getImplementationType());
-                                    ASSERT_EQ(1, impl.getConfig().inConfs.size());
-                                    ASSERT_EQ(2, impl.getConfig().outConfs.size());
-                                    ASSERT_EQ(InferenceEngine::Layout::BLOCKED, impl.getConfig().inConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::BLOCKED, impl.getConfig().outConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::BLOCKED, impl.getConfig().outConfs.at(1).desc.getLayout());
-                                }
-                        }
+                        1, 6, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
                 },
                 split_test_params {
                         {1, 20, 2, 5},
                         {{1, 13, 2, 5}, {1, 7, 2, 5}},
-                        1, 2, MKLDNNPlugin::impl_desc_type::unknown, {}, {
-                                [](MKLDNNPlugin::PrimitiveDescInfo impl) {
-                                    ASSERT_EQ(MKLDNNPlugin::impl_desc_type::ref, impl.getImplementationType());
-                                    ASSERT_EQ(1, impl.getConfig().inConfs.size());
-                                    ASSERT_EQ(2, impl.getConfig().outConfs.size());
-                                    ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().inConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().outConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().outConfs.at(1).desc.getLayout());
-                                },
-                                [](MKLDNNPlugin::PrimitiveDescInfo impl) {
-                                    ASSERT_EQ(MKLDNNPlugin::impl_desc_type::unknown, impl.getImplementationType());
-                                    ASSERT_EQ(1, impl.getConfig().inConfs.size());
-                                    ASSERT_EQ(2, impl.getConfig().outConfs.size());
-                                    ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().inConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().outConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().outConfs.at(1).desc.getLayout());
-                                }
-                        }
+                        1, 4, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
                 },
                 split_test_params {
                         {1, 20, 2, 5},
                         {{1, 10, 2, 5}, {1, 10, 2, 5}},
-                        1, 2, MKLDNNPlugin::impl_desc_type::unknown, {}, {
-                                [](MKLDNNPlugin::PrimitiveDescInfo impl) {
-                                    ASSERT_EQ(MKLDNNPlugin::impl_desc_type::ref, impl.getImplementationType());
-                                    ASSERT_EQ(1, impl.getConfig().inConfs.size());
-                                    ASSERT_EQ(2, impl.getConfig().outConfs.size());
-                                    ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().inConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().outConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().outConfs.at(1).desc.getLayout());
-                                },
-                                [](MKLDNNPlugin::PrimitiveDescInfo impl) {
-                                    ASSERT_EQ(MKLDNNPlugin::impl_desc_type::unknown, impl.getImplementationType());
-                                    ASSERT_EQ(1, impl.getConfig().inConfs.size());
-                                    ASSERT_EQ(2, impl.getConfig().outConfs.size());
-                                    ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().inConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().outConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().outConfs.at(1).desc.getLayout());
-                                }
-                        }
+                        1, 4, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
                 },
                 split_test_params {
                         {2, 20, 2, 5},
                         {{2, 10, 2, 5}, {2, 10, 2, 5}},
-                        1, 2, MKLDNNPlugin::impl_desc_type::unknown, {}, {
-                                [](MKLDNNPlugin::PrimitiveDescInfo impl) {
-                                    ASSERT_EQ(MKLDNNPlugin::impl_desc_type::ref, impl.getImplementationType());
-                                    ASSERT_EQ(1, impl.getConfig().inConfs.size());
-                                    ASSERT_EQ(2, impl.getConfig().outConfs.size());
-                                    ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().inConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().outConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().outConfs.at(1).desc.getLayout());
-                                },
-                                [](MKLDNNPlugin::PrimitiveDescInfo impl) {
-                                    ASSERT_EQ(MKLDNNPlugin::impl_desc_type::unknown, impl.getImplementationType());
-                                    ASSERT_EQ(1, impl.getConfig().inConfs.size());
-                                    ASSERT_EQ(2, impl.getConfig().outConfs.size());
-                                    ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().inConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().outConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().outConfs.at(1).desc.getLayout());
-                                }
-                        }
-                },
-                split_test_params {
-                        {1, 24, 2, 5},
-                        {{1, 16, 2, 5}, {1, 8, 2, 5}},
-                        1, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
-                },
-                split_test_params {
-                        {1, 20, 2, 5},
-                        {{1, 13, 2, 5}, {1, 7, 2, 5}},
-                        1, 2, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
-                },
-                split_test_params {
-                        {1, 20, 2, 5},
-                        {{1, 10, 2, 5}, {1, 10, 2, 5}},
-                        1, 2, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
-                },
-                split_test_params {
-                        {2, 20, 2, 5},
-                        {{2, 10, 2, 5}, {2, 10, 2, 5}},
-                        1, 2, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
+                        1, 4, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
                 },
                 split_test_params {
                         {2, 20, 2, 5},
                         {{2, 15, 2, 5}, {2,  5, 2, 5}},
-                        1, 2, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
+                        1, 4, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
                 },
                 split_test_params {
                         {9, 11, 7, 5},
                         {{3, 11, 7, 5}, {6, 11, 7, 5}},
-                        0, 2, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
+                        0, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
                 },
                 split_test_params {
                         {3, 11, 7, 5},
                         {{3, 11, 4, 5}, {3, 11, 3, 5}},
-                        2, 2, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
+                        2, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
                 },
                 split_test_params {
                         {3, 11, 7, 5},
                         {{3, 11, 7, 1}, {3, 11, 7, 4}},
-                        3, 2, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
+                        3, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
                 },
                 split_test_params {
                         {5, 6, 7, 15},
                         {{1, 6, 7, 15}, {2, 6, 7, 15}, {1, 6, 7, 15}, {1, 6, 7, 15}},
-                        0, 2, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
+                        0, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
                 },
                 split_test_params {
                         {5, 6, 7, 15},
                         {{5, 1, 7, 15}, {5, 2, 7, 15}, {5, 1, 7, 15}, {5, 2, 7, 15}},
-                        1, 2, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
+                        1, 4, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
                 },
                 split_test_params {
                         {5, 6, 7, 15},
                         {{5, 6, 3, 15}, {5, 6, 1, 15}, {5, 6, 2, 15}, {5, 6, 1, 15}},
-                        2, 2, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
+                        2, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
                 },
                 split_test_params {
                         {5, 6, 7, 15},
                         {{5, 6, 7, 5}, {5, 6, 7, 3}, {5, 6, 7, 4}, {5, 6, 7, 3}},
-                        3, 2, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
+                        3, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
                 },
                 split_test_params {
                         {5, 6, 7, 15},
                         {{5, 6, 7, 15}},
-                        1, 2, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}},
+                        1, 4, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}},
                 split_test_params {
                         {1, 32, 16, 16, 16},
                         {{1, 8, 16, 16, 16}, {1, 8, 16, 16, 16}, {1, 8, 16, 16, 16}, {1, 8, 16, 16, 16}},
-                        1, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}},
+                        1, 6, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}},
                 split_test_params {
                         {1, 32, 16, 16, 16},
                         {{1, 8, 16, 16, 16}, {1, 8, 16, 16, 16}, {1, 8, 16, 16, 16}, {1, 8, 16, 16, 16}},
-                        1, 3, MKLDNNPlugin::impl_desc_type::unknown, {}}));
+                        1, 6, MKLDNNPlugin::impl_desc_type::unknown, {}}));
 
 class MKLDNNGraphDynBatchSplitTests: public MKLDNNGraphSplitTests {
 protected:
@@ -411,20 +310,21 @@ protected:
             if (MB < 2)
                 MB = 2;
 
-            InferenceEngine::CNNNetReader net_reader;
-            ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
-            InferenceEngine::CNNNetwork network = net_reader.getNetwork();
-            auto implNet = dynamic_cast<InferenceEngine::details::CNNNetworkImpl *>(&((InferenceEngine::ICNNNetwork&)network));
-            ASSERT_NE(nullptr, implNet) << "Failed to cast ICNNNetwork to CNNNetworkImpl";
+            InferenceEngine::Core core;
+            InferenceEngine::CNNNetwork network;
+            ASSERT_NO_THROW(network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr()));
+
+            ASSERT_EQ(nullptr, network.getFunction());
+            auto implNet = static_cast<InferenceEngine::details::CNNNetworkImpl *>(&((InferenceEngine::ICNNNetwork&)network));
             InferenceEngine::ResponseDesc resp;
             InferenceEngine::StatusCode sts  = implNet->setBatchSizeReshape(MB, &resp);
             ASSERT_EQ((int)InferenceEngine::StatusCode::OK, sts) << resp.msg;
 
             MKLDNNGraphTestClass graph;
             graph.setProperty({{InferenceEngine::PluginConfigParams::KEY_DYN_BATCH_ENABLED, InferenceEngine::PluginConfigParams::YES}});
-            graph.CreateGraph(net_reader.getNetwork());
+            graph.CreateGraph(network);
 
-            InferenceEngine::Blob::Ptr src = InferenceEngine::make_shared_blob<float>(net_reader.getNetwork().getInputsInfo().begin()->second->getTensorDesc());
+            InferenceEngine::Blob::Ptr src = InferenceEngine::make_shared_blob<float>(network.getInputsInfo().begin()->second->getTensorDesc());
             src->allocate();
             fill_data(src->buffer(), src->size());
 
@@ -437,7 +337,7 @@ protected:
                 FAIL() << "Cannot cast blob to TBlob<float>.";
 
             InferenceEngine::OutputsDataMap out;
-            out = net_reader.getNetwork().getOutputsInfo();
+            out = network.getOutputsInfo();
             InferenceEngine::BlobMap outputBlobs;
             auto it = out.begin();
 
@@ -460,7 +360,7 @@ protected:
 
             graph.checkDynBatch(srcs, outputBlobs, MB, MB, checkSplit);
             graph.checkDynBatch(srcs, outputBlobs, 1, MB, checkSplit);
-        } catch (const InferenceEngine::details::InferenceEngineException &e) {
+        } catch (const InferenceEngine::Exception &e) {
             FAIL() << e.what();
         }
     }
@@ -471,148 +371,131 @@ TEST_P(MKLDNNGraphDynBatchSplitTests, TestsDynBatchSplit) {}
 INSTANTIATE_TEST_CASE_P(
         TestsDynBatchSplit, MKLDNNGraphDynBatchSplitTests,
         ::testing::Values(
-                split_test_params {
-                        {1, 24, 2, 5},
-                        {{1, 16, 2, 5}, {1, 8, 2, 5}},
-                        1, 3, MKLDNNPlugin::impl_desc_type::unknown, {}, {
-                                [](MKLDNNPlugin::PrimitiveDescInfo impl) {
-                                    ASSERT_EQ(MKLDNNPlugin::impl_desc_type::ref, impl.getImplementationType());
-                                    ASSERT_EQ(1, impl.getConfig().inConfs.size());
-                                    ASSERT_EQ(2, impl.getConfig().outConfs.size());
-                                    ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().inConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().outConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().outConfs.at(1).desc.getLayout());
-                                },
-                                [](MKLDNNPlugin::PrimitiveDescInfo impl) {
-                                    ASSERT_EQ(MKLDNNPlugin::impl_desc_type::unknown, impl.getImplementationType());
-                                    ASSERT_EQ(1, impl.getConfig().inConfs.size());
-                                    ASSERT_EQ(2, impl.getConfig().outConfs.size());
-                                    ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().inConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().outConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().outConfs.at(1).desc.getLayout());
-                                },
-                                [](MKLDNNPlugin::PrimitiveDescInfo impl) {
-                                    ASSERT_EQ(MKLDNNPlugin::impl_desc_type::unknown, impl.getImplementationType());
-                                    ASSERT_EQ(1, impl.getConfig().inConfs.size());
-                                    ASSERT_EQ(2, impl.getConfig().outConfs.size());
-                                    ASSERT_EQ(InferenceEngine::Layout::BLOCKED, impl.getConfig().inConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::BLOCKED, impl.getConfig().outConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::BLOCKED, impl.getConfig().outConfs.at(1).desc.getLayout());
-                                }
-                        }
-                },
-                split_test_params {
-                        {1, 20, 2, 5},
-                        {{1, 13, 2, 5}, {1, 7, 2, 5}},
-                        1, 2, MKLDNNPlugin::impl_desc_type::unknown, {}, {
-                                [](MKLDNNPlugin::PrimitiveDescInfo impl) {
-                                    ASSERT_EQ(MKLDNNPlugin::impl_desc_type::ref, impl.getImplementationType());
-                                    ASSERT_EQ(1, impl.getConfig().inConfs.size());
-                                    ASSERT_EQ(2, impl.getConfig().outConfs.size());
-                                    ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().inConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().outConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().outConfs.at(1).desc.getLayout());
-                                },
-                                [](MKLDNNPlugin::PrimitiveDescInfo impl) {
-                                    ASSERT_EQ(MKLDNNPlugin::impl_desc_type::unknown, impl.getImplementationType());
-                                    ASSERT_EQ(1, impl.getConfig().inConfs.size());
-                                    ASSERT_EQ(2, impl.getConfig().outConfs.size());
-                                    ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().inConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().outConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().outConfs.at(1).desc.getLayout());
-                                }
-                        }
-                },
-                split_test_params {
-                        {1, 20, 2, 5},
-                        {{1, 10, 2, 5}, {1, 10, 2, 5}},
-                        1, 2, MKLDNNPlugin::impl_desc_type::unknown, {}, {
-                                [](MKLDNNPlugin::PrimitiveDescInfo impl) {
-                                    ASSERT_EQ(MKLDNNPlugin::impl_desc_type::ref, impl.getImplementationType());
-                                    ASSERT_EQ(1, impl.getConfig().inConfs.size());
-                                    ASSERT_EQ(2, impl.getConfig().outConfs.size());
-                                    ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().inConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().outConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().outConfs.at(1).desc.getLayout());
-                                },
-                                [](MKLDNNPlugin::PrimitiveDescInfo impl) {
-                                    ASSERT_EQ(MKLDNNPlugin::impl_desc_type::unknown, impl.getImplementationType());
-                                    ASSERT_EQ(1, impl.getConfig().inConfs.size());
-                                    ASSERT_EQ(2, impl.getConfig().outConfs.size());
-                                    ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().inConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().outConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().outConfs.at(1).desc.getLayout());
-                                }
-                        }
-                },
-                split_test_params {
-                        {2, 20, 2, 5},
-                        {{2, 10, 2, 5}, {2, 10, 2, 5}},
-                        1, 2, MKLDNNPlugin::impl_desc_type::unknown, {}, {
-                                [](MKLDNNPlugin::PrimitiveDescInfo impl) {
-                                    ASSERT_EQ(MKLDNNPlugin::impl_desc_type::ref, impl.getImplementationType());
-                                    ASSERT_EQ(1, impl.getConfig().inConfs.size());
-                                    ASSERT_EQ(2, impl.getConfig().outConfs.size());
-                                    ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().inConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().outConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().outConfs.at(1).desc.getLayout());
-                                },
-                                [](MKLDNNPlugin::PrimitiveDescInfo impl) {
-                                    ASSERT_EQ(MKLDNNPlugin::impl_desc_type::unknown, impl.getImplementationType());
-                                    ASSERT_EQ(1, impl.getConfig().inConfs.size());
-                                    ASSERT_EQ(2, impl.getConfig().outConfs.size());
-                                    ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().inConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().outConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().outConfs.at(1).desc.getLayout());
-                                }
-                        }
-                },
+                // TODO: rewrite to ngraph to have reshape functionality
+                // split_test_params {
+                //         {1, 24, 2, 5},
+                //         {{1, 16, 2, 5}, {1, 8, 2, 5}},
+                //         1, 3, MKLDNNPlugin::impl_desc_type::unknown, {}, {
+                //                 [](MKLDNNPlugin::PrimitiveDescInfo impl) {
+                //                     ASSERT_EQ(MKLDNNPlugin::impl_desc_type::ref, impl.getImplementationType());
+                //                     ASSERT_EQ(1, impl.getConfig().inConfs.size());
+                //                     ASSERT_EQ(2, impl.getConfig().outConfs.size());
+                //                     ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().inConfs.at(0).desc.getLayout());
+                //                     ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().outConfs.at(0).desc.getLayout());
+                //                     ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().outConfs.at(1).desc.getLayout());
+                //                 },
+                //                 [](MKLDNNPlugin::PrimitiveDescInfo impl) {
+                //                     ASSERT_EQ(MKLDNNPlugin::impl_desc_type::unknown, impl.getImplementationType());
+                //                     ASSERT_EQ(1, impl.getConfig().inConfs.size());
+                //                     ASSERT_EQ(2, impl.getConfig().outConfs.size());
+                //                     ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().inConfs.at(0).desc.getLayout());
+                //                     ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().outConfs.at(0).desc.getLayout());
+                //                     ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().outConfs.at(1).desc.getLayout());
+                //                 },
+                //                 [](MKLDNNPlugin::PrimitiveDescInfo impl) {
+                //                     ASSERT_EQ(MKLDNNPlugin::impl_desc_type::unknown, impl.getImplementationType());
+                //                     ASSERT_EQ(1, impl.getConfig().inConfs.size());
+                //                     ASSERT_EQ(2, impl.getConfig().outConfs.size());
+                //                     ASSERT_EQ(InferenceEngine::Layout::BLOCKED, impl.getConfig().inConfs.at(0).desc.getLayout());
+                //                     ASSERT_EQ(InferenceEngine::Layout::BLOCKED, impl.getConfig().outConfs.at(0).desc.getLayout());
+                //                     ASSERT_EQ(InferenceEngine::Layout::BLOCKED, impl.getConfig().outConfs.at(1).desc.getLayout());
+                //                 }
+                //         }
+                // },
+                // TODO: rewrite to ngraph to have reshape functionality
+                // split_test_params {
+                //         {1, 20, 2, 5},
+                //         {{1, 13, 2, 5}, {1, 7, 2, 5}},
+                //         1, 2, MKLDNNPlugin::impl_desc_type::unknown, {}, {
+                //                 [](MKLDNNPlugin::PrimitiveDescInfo impl) {
+                //                     ASSERT_EQ(MKLDNNPlugin::impl_desc_type::ref, impl.getImplementationType());
+                //                     ASSERT_EQ(1, impl.getConfig().inConfs.size());
+                //                     ASSERT_EQ(2, impl.getConfig().outConfs.size());
+                //                     ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().inConfs.at(0).desc.getLayout());
+                //                     ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().outConfs.at(0).desc.getLayout());
+                //                     ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().outConfs.at(1).desc.getLayout());
+                //                 },
+                //                 [](MKLDNNPlugin::PrimitiveDescInfo impl) {
+                //                     ASSERT_EQ(MKLDNNPlugin::impl_desc_type::unknown, impl.getImplementationType());
+                //                     ASSERT_EQ(1, impl.getConfig().inConfs.size());
+                //                     ASSERT_EQ(2, impl.getConfig().outConfs.size());
+                //                     ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().inConfs.at(0).desc.getLayout());
+                //                     ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().outConfs.at(0).desc.getLayout());
+                //                     ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().outConfs.at(1).desc.getLayout());
+                //                 }
+                //         }
+                // },
+                // TODO: rewrite to ngraph to have reshape functionality
+                // split_test_params {
+                //         {1, 20, 2, 5},
+                //         {{1, 10, 2, 5}, {1, 10, 2, 5}},
+                //         1, 2, MKLDNNPlugin::impl_desc_type::unknown, {}, {
+                //                 [](MKLDNNPlugin::PrimitiveDescInfo impl) {
+                //                     ASSERT_EQ(MKLDNNPlugin::impl_desc_type::ref, impl.getImplementationType());
+                //                     ASSERT_EQ(1, impl.getConfig().inConfs.size());
+                //                     ASSERT_EQ(2, impl.getConfig().outConfs.size());
+                //                     ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().inConfs.at(0).desc.getLayout());
+                //                     ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().outConfs.at(0).desc.getLayout());
+                //                     ASSERT_EQ(InferenceEngine::Layout::ANY, impl.getConfig().outConfs.at(1).desc.getLayout());
+                //                 },
+                //                 [](MKLDNNPlugin::PrimitiveDescInfo impl) {
+                //                     ASSERT_EQ(MKLDNNPlugin::impl_desc_type::unknown, impl.getImplementationType());
+                //                     ASSERT_EQ(1, impl.getConfig().inConfs.size());
+                //                     ASSERT_EQ(2, impl.getConfig().outConfs.size());
+                //                     ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().inConfs.at(0).desc.getLayout());
+                //                     ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().outConfs.at(0).desc.getLayout());
+                //                     ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().outConfs.at(1).desc.getLayout());
+                //                 }
+                //         }
+                // },
                 split_test_params {
                         {2, 24, 2, 5},
                         {{2, 16, 2, 5}, {2, 8, 2, 5}},
-                        1, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
+                        1, 5, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
                 },
-                split_test_params {
-                        {1, 20, 2, 5},
-                        {{1, 13, 2, 5}, {1, 7, 2, 5}},
-                        1, 2, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
-                },
-                split_test_params {
-                        {1, 20, 2, 5},
-                        {{1, 10, 2, 5}, {1, 10, 2, 5}},
-                        1, 2, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
-                },
+                // TODO: rewrite to ngraph to have reshape functionality
+                // split_test_params {
+                //         {1, 20, 2, 5},
+                //         {{1, 13, 2, 5}, {1, 7, 2, 5}},
+                //         1, 2, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
+                // },
+                // TODO: rewrite to ngraph to have reshape functionality
+                // split_test_params {
+                //         {1, 20, 2, 5},
+                //         {{1, 10, 2, 5}, {1, 10, 2, 5}},
+                //         1, 2, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
+                // },
                 split_test_params {
                         {2, 20, 2, 5},
                         {{2, 10, 2, 5}, {2, 10, 2, 5}},
-                        1, 2, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
+                        1, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
                 },
                 split_test_params {
                         {2, 20, 2, 5},
                         {{2, 15, 2, 5}, {2,  5, 2, 5}},
-                        1, 2, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
+                        1, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
                 },
                 split_test_params {
                         {3, 11, 7, 5},
                         {{3, 11, 4, 5}, {3, 11, 3, 5}},
-                        2, 2, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
+                        2, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
                 },
                 split_test_params {
                         {3, 11, 7, 5},
                         {{3, 11, 7, 1}, {3, 11, 7, 4}},
-                        3, 2, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
+                        3, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
                 },
                 split_test_params {
                         {5, 6, 7, 15},
                         {{5, 1, 7, 15}, {5, 2, 7, 15}, {5, 1, 7, 15}, {5, 2, 7, 15}},
-                        1, 2, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
+                        1, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
                 },
                 split_test_params {
                         {5, 6, 7, 15},
                         {{5, 6, 3, 15}, {5, 6, 1, 15}, {5, 6, 2, 15}, {5, 6, 1, 15}},
-                        2, 2, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
+                        2, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}
                 },
                 split_test_params {
                         {5, 6, 7, 15},
                         {{5, 6, 7, 5}, {5, 6, 7, 3}, {5, 6, 7, 4}, {5, 6, 7, 3}},
-                        3, 2, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}}));
+                        3, 3, MKLDNNPlugin::impl_desc_type::ref, {MKLDNNPlugin::impl_desc_type::ref}}));

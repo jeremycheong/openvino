@@ -1,31 +1,30 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
-
-#include <gtest/gtest.h>
-#include <gmock/gmock-spec-builders.h>
-#include "mkldnn_graph.h"
 
 #include "test_graph.hpp"
 
 #include "single_layer_common.hpp"
-#include <mkldnn_extension_utils.h>
 #include "tests_common.hpp"
 #include "ir_gen_helper.hpp"
-#include <cpp/ie_cnn_net_reader.h>
+#include <ie_core.hpp>
 
 #include <nodes/base.hpp>
-#include <cpu_isa_traits.hpp>
+#include <ie_system_conf.h>
 
 using namespace InferenceEngine;
 using namespace ::testing;
 using namespace std;
-using namespace mkldnn;
 using namespace single_layer_tests;
 
 using namespace Extensions;
 using namespace ::Cpu;
-using namespace mkldnn::impl;
+
+namespace {
+
+OV_CC_DOMAINS(MVNTests);
+
+}   // namespace
 
 struct mvn_test_params {
     vector<size_t> dims;
@@ -260,17 +259,18 @@ protected:
             mvn_test_params p = ::testing::WithParamInterface<mvn_test_params>::GetParam();
             std::string model = getModel(p);
 
-            CNNNetReader net_reader;
-            ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
+            InferenceEngine::Core core;
+            InferenceEngine::CNNNetwork network;
+            ASSERT_NO_THROW(network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr()));
 
             MKLDNNPlugin::MKLDNNExtensionManager::Ptr extMgr(new MKLDNNPlugin::MKLDNNExtensionManager());
-            auto defaultExtensions = std::make_shared<InferenceEngine::Extensions::Cpu::MKLDNNExtensions<mkldnn::impl::cpu::cpu_isa_t::isa_any>>();
+            auto defaultExtensions = std::make_shared<InferenceEngine::Extensions::Cpu::MKLDNNExtensions>();
             extMgr->AddExtension(defaultExtensions);
             extMgr->AddExtension(make_FakeExtensions());
 
 
             MKLDNNGraphTestClass graph;
-            graph.CreateGraph(net_reader.getNetwork(), extMgr);
+            graph.CreateGraph(network, extMgr);
 
             auto& nodes = graph.getNodes();
             nodes = graph.getNodes();
@@ -312,7 +312,7 @@ protected:
             srcs.insert(std::pair<std::string, Blob::Ptr>("in1", src));
 
             OutputsDataMap out;
-            out = net_reader.getNetwork().getOutputsInfo();
+            out = network.getOutputsInfo();
             BlobMap outputBlobs;
 
             std::pair<std::string, DataPtr> item = *out.begin();
@@ -328,7 +328,7 @@ protected:
             dst_ref.allocate();
             ref_mvn(*srcPtr, dst_ref, p);
             compare(*output, dst_ref, 0.0001f);
-        } catch (const details::InferenceEngineException &e) {
+        } catch (const Exception &e) {
             FAIL() << e.what();
         }
     }
@@ -339,32 +339,32 @@ TEST_P(MKLDNNCPUExtMVNTests, TestsMVN) {}
 INSTANTIATE_TEST_CASE_P(
         TestsMVN, MKLDNNCPUExtMVNTests,
         ::testing::Values(
-        /*0*/   mvn_test_params{{2, 64, 15, 15}, 0, 0, 0.00001, 2, false, MKLDNNPlugin::impl_desc_type::unknown },
-                mvn_test_params{{2,  2, 33, 65}, 0, 0, 0.00001, 2, false, MKLDNNPlugin::impl_desc_type::unknown },
+        /*0*/   mvn_test_params{{2, 64, 15, 15}, 0, 0, 0.00001, 3, false, MKLDNNPlugin::impl_desc_type::unknown },
+                mvn_test_params{{2,  2, 33, 65}, 0, 0, 0.00001, 3, false, MKLDNNPlugin::impl_desc_type::unknown },
                 mvn_test_params{{2, 64, 15, 15}, 0, 1, 0.00001, 3, false, MKLDNNPlugin::impl_desc_type::unknown },
                 mvn_test_params{{2,  2, 33, 65}, 0, 1, 0.00001, 3, false, MKLDNNPlugin::impl_desc_type::unknown },
-                mvn_test_params{{2, 64, 15, 15}, 1, 0, 0.00001, 2, false, MKLDNNPlugin::impl_desc_type::unknown },
-                mvn_test_params{{2,  2, 33, 65}, 1, 0, 0.00001, 2, false, MKLDNNPlugin::impl_desc_type::unknown },
-                mvn_test_params{{2, 64, 15, 15}, 1, 1, 0.00001, 2, false, MKLDNNPlugin::impl_desc_type::unknown },
-                mvn_test_params{{2,  2, 33, 65}, 1, 1, 0.00001, 2, false, MKLDNNPlugin::impl_desc_type::unknown },
-                mvn_test_params{{2, 64, 15, 15}, 0, 0, 0.00001, 2, true, MKLDNNPlugin::impl_desc_type::unknown },
-        /*9*/   mvn_test_params{{2,  2, 33, 65}, 0, 0, 0.00001, 2, true, MKLDNNPlugin::impl_desc_type::unknown },
+                mvn_test_params{{2, 64, 15, 15}, 1, 0, 0.00001, 3, false, MKLDNNPlugin::impl_desc_type::unknown },
+                mvn_test_params{{2,  2, 33, 65}, 1, 0, 0.00001, 3, false, MKLDNNPlugin::impl_desc_type::unknown },
+                mvn_test_params{{2, 64, 15, 15}, 1, 1, 0.00001, 3, false, MKLDNNPlugin::impl_desc_type::unknown },
+                mvn_test_params{{2,  2, 33, 65}, 1, 1, 0.00001, 3, false, MKLDNNPlugin::impl_desc_type::unknown },
+                mvn_test_params{{2, 64, 15, 15}, 0, 0, 0.00001, 3, true, MKLDNNPlugin::impl_desc_type::unknown },
+        /*9*/   mvn_test_params{{2,  2, 33, 65}, 0, 0, 0.00001, 3, true, MKLDNNPlugin::impl_desc_type::unknown },
                 mvn_test_params{{2, 64, 15, 15}, 0, 1, 0.00001, 3, true, MKLDNNPlugin::impl_desc_type::unknown },
                 mvn_test_params{{2,  2, 33, 65}, 0, 1, 0.00001, 3, true, MKLDNNPlugin::impl_desc_type::unknown },
-                mvn_test_params{{2, 64, 15, 15}, 1, 0, 0.00001, 2, true, MKLDNNPlugin::impl_desc_type::unknown },
-                mvn_test_params{{2,  2, 33, 65}, 1, 0, 0.00001, 2, true, MKLDNNPlugin::impl_desc_type::unknown },
-        /*14*/  mvn_test_params{{2,640, 15, 15}, 1, 1, 0.00001, 2, true, MKLDNNPlugin::impl_desc_type::unknown },
-                mvn_test_params{{2,  2, 33, 65}, 1, 1, 0.00001, 2, true, MKLDNNPlugin::impl_desc_type::unknown },
+                mvn_test_params{{2, 64, 15, 15}, 1, 0, 0.00001, 3, true, MKLDNNPlugin::impl_desc_type::unknown },
+                mvn_test_params{{2,  2, 33, 65}, 1, 0, 0.00001, 3, true, MKLDNNPlugin::impl_desc_type::unknown },
+        /*14*/  mvn_test_params{{2,640, 15, 15}, 1, 1, 0.00001, 3, true, MKLDNNPlugin::impl_desc_type::unknown },
+                mvn_test_params{{2,  2, 33, 65}, 1, 1, 0.00001, 3, true, MKLDNNPlugin::impl_desc_type::unknown },
 
                 // 5D
-        /*16*/  mvn_test_params{{2, 64, 24, 32, 40}, 0, 0, 0.00001f, 2, false, MKLDNNPlugin::impl_desc_type::unknown },
+        /*16*/  mvn_test_params{{2, 64, 24, 32, 40}, 0, 0, 0.00001f, 3, false, MKLDNNPlugin::impl_desc_type::unknown },
                 mvn_test_params{{2, 64, 24, 32, 40}, 0, 1, 0.00001f, 3, false, MKLDNNPlugin::impl_desc_type::unknown },
-                mvn_test_params{{2, 64, 24, 32, 40}, 1, 0, 0.00001f, 2, false, MKLDNNPlugin::impl_desc_type::unknown },
-                mvn_test_params{{2, 64, 24, 32, 40}, 1, 1, 0.00001f, 2, false, MKLDNNPlugin::impl_desc_type::unknown },
-                mvn_test_params{{2, 64, 24, 32, 40}, 0, 0, 0.00001f, 2, true, MKLDNNPlugin::impl_desc_type::unknown },
+                mvn_test_params{{2, 64, 24, 32, 40}, 1, 0, 0.00001f, 3, false, MKLDNNPlugin::impl_desc_type::unknown },
+                mvn_test_params{{2, 64, 24, 32, 40}, 1, 1, 0.00001f, 3, false, MKLDNNPlugin::impl_desc_type::unknown },
+                mvn_test_params{{2, 64, 24, 32, 40}, 0, 0, 0.00001f, 3, true, MKLDNNPlugin::impl_desc_type::unknown },
                 mvn_test_params{{2, 64, 24, 32, 40}, 0, 1, 0.00001f, 3, true, MKLDNNPlugin::impl_desc_type::unknown },
-                mvn_test_params{{2, 64, 24, 32, 40}, 1, 0, 0.00001f, 2, true, MKLDNNPlugin::impl_desc_type::unknown },
-        /*23*/  mvn_test_params{{2, 64, 24, 32, 40}, 1, 1, 0.00001f, 2, true, MKLDNNPlugin::impl_desc_type::unknown },
+                mvn_test_params{{2, 64, 24, 32, 40}, 1, 0, 0.00001f, 3, true, MKLDNNPlugin::impl_desc_type::unknown },
+        /*23*/  mvn_test_params{{2, 64, 24, 32, 40}, 1, 1, 0.00001f, 3, true, MKLDNNPlugin::impl_desc_type::unknown },
                 mvn_test_params{{1, 64, 32, 32, 32}, 0, 1, 0.001f, 3, true, MKLDNNPlugin::impl_desc_type::unknown }
             ));
 
@@ -386,7 +386,7 @@ public:
         try {
             is_blocked = layer->GetParamAsBool("is_blocked");
             addConfig(layer);
-        } catch (InferenceEngine::details::InferenceEngineException &ex) {
+        } catch (InferenceEngine::Exception &ex) {
             errorMsg = ex.what();
         }
     }
@@ -403,7 +403,7 @@ public:
                     return 0;
                 return (a + b - 1) / b;
             };
-            if (!data) THROW_IE_EXCEPTION << "Cannot get input data!";
+            if (!data) IE_THROW() << "Cannot get input data!";
 
             DataConfig dataConfig;
             dataConfig.inPlace = 0;
@@ -415,7 +415,7 @@ public:
             InferenceEngine::Precision precision = data_desc.getPrecision();
             Layout layout;
             if (is_blocked) {
-                int blk_size = cpu::mayiuse(cpu::avx512_common) ? 16 : 8;
+                int blk_size = InferenceEngine::with_cpu_x86_avx512f() ? 16 : 8;
 
                 std::vector<size_t> blocks = data_dims;
                 std::vector<size_t> order(blocks.size());
@@ -444,8 +444,6 @@ public:
         return OK;
     }
 };
-
-REG_FACTORY_FOR(Cpu::ImplFactory<FakeLayerImpl_MVN>, FakeLayer_MVN);
 
 class MKLDNNCPUExtMVNTests_Blocked: public TestsCommon, public WithParamInterface<mvn_test_params> {
     std::string layers_t = R"V0G0N(
@@ -528,11 +526,18 @@ protected:
             mvn_test_params p = ::testing::WithParamInterface<mvn_test_params>::GetParam();
             std::string model = getModel(p);
 
-            CNNNetReader net_reader;
-            ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
+            InferenceEngine::Core core;
+            InferenceEngine::CNNNetwork network;
+            ASSERT_NO_THROW(network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr()));
 
             MKLDNNGraphTestClass graph;
-            graph.CreateGraph(net_reader.getNetwork());
+            auto manager = std::make_shared<MKLDNNPlugin::MKLDNNExtensionManager>();
+            {
+                auto defaultExt = std::make_shared<Cpu::MKLDNNExtensions>();
+                defaultExt->layersFactory.registerNodeIfRequired(MVNTests, FakeLayer_MVN, "FakeLayer_MVN", Cpu::ImplFactory<FakeLayerImpl_MVN>);
+                manager->AddExtension(defaultExt);
+            }
+            graph.CreateGraph(network, manager);
 
             auto& nodes = graph.getNodes();
             nodes = graph.getNodes();
@@ -580,7 +585,7 @@ protected:
             srcs.insert(std::pair<std::string, Blob::Ptr>("in1", src));
 
             OutputsDataMap out;
-            out = net_reader.getNetwork().getOutputsInfo();
+            out = network.getOutputsInfo();
             BlobMap outputBlobs;
 
             std::pair<std::string, DataPtr> item = *out.begin();
@@ -596,7 +601,7 @@ protected:
             dst_ref.allocate();
             ref_mvn(*srcPtr, dst_ref, p);
             compare(*output, dst_ref, 0.0001f);
-        } catch (const details::InferenceEngineException &e) {
+        } catch (const Exception &e) {
             FAIL() << e.what();
         }
     }
@@ -611,29 +616,29 @@ INSTANTIATE_TEST_CASE_P(
                         mvn_test_params{{2,  2, 33, 65}, 0, 1, 0.00001, 3, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::FP32, Precision::FP32 },
                         mvn_test_params{{2, 64, 8, 8, 8}, 0, 1, 0.00001f, 3, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::FP32, Precision::FP32 },
 
-                        mvn_test_params{{2, 64, 15, 15}, 0, 1, 0.00001, 1, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::FP32, Precision::U8 },
-                        mvn_test_params{{2,  2, 33, 65}, 0, 1, 0.00001, 1, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::FP32, Precision::U8 },
-                        mvn_test_params{{2, 64, 8, 8, 8}, 0, 1, 0.00001f, 1, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::FP32, Precision::U8 },
+                        mvn_test_params{{2, 64, 15, 15}, 0, 1, 0.00001, 3, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::FP32, Precision::U8 },
+                /*4*/   // mvn_test_params{{2,  2, 33, 65}, 0, 1, 0.00001, 3, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::FP32, Precision::U8 },
+                        mvn_test_params{{2, 64, 8, 8, 8}, 0, 1, 0.00001f, 3, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::FP32, Precision::U8 },
 
-                        mvn_test_params{{2, 64, 15, 15}, 0, 1, 0.00001, 1, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::U8, Precision::U8 },
-                        mvn_test_params{{2,  2, 33, 65}, 0, 1, 0.00001, 1, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::U8, Precision::U8 },
-                        mvn_test_params{{2, 64, 8, 8, 8}, 0, 1, 0.00001f, 1, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::U8, Precision::U8 },
+                        mvn_test_params{{2, 64, 15, 15}, 0, 1, 0.00001, 3, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::U8, Precision::U8 },
+                /*7*/   // mvn_test_params{{2,  2, 33, 65}, 0, 1, 0.00001, 3, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::U8, Precision::U8 },
+                        mvn_test_params{{2, 64, 8, 8, 8}, 0, 1, 0.00001f, 3, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::U8, Precision::U8 },
 
-                        mvn_test_params{{2, 64, 15, 15}, 0, 1, 0.00001, 1, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::U8, Precision::FP32 },
-                        mvn_test_params{{2,  2, 33, 65}, 0, 1, 0.00001, 1, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::U8, Precision::FP32 },
-                        mvn_test_params{{2, 64, 8, 8, 8}, 0, 1, 0.00001f, 1, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::U8, Precision::FP32 },
+                        mvn_test_params{{2, 64, 15, 15}, 0, 1, 0.00001, 3, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::U8, Precision::FP32 },
+                        mvn_test_params{{2,  2, 33, 65}, 0, 1, 0.00001, 3, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::U8, Precision::FP32 },
+                        mvn_test_params{{2, 64, 8, 8, 8}, 0, 1, 0.00001f, 3, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::U8, Precision::FP32 },
 
-                        mvn_test_params{{2, 64, 15, 15}, 0, 1, 0.00001, 1, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::FP32, Precision::I8 },
-                        mvn_test_params{{2,  2, 33, 65}, 0, 1, 0.00001, 1, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::FP32, Precision::I8 },
-                        mvn_test_params{{2, 64, 8, 8, 8}, 0, 1, 0.00001f, 1, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::FP32, Precision::I8 },
+                        mvn_test_params{{2, 64, 15, 15}, 0, 1, 0.00001, 3, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::FP32, Precision::I8 },
+                /*13*/  // mvn_test_params{{2,  2, 33, 65}, 0, 1, 0.00001, 3, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::FP32, Precision::I8 },
+                        mvn_test_params{{2, 64, 8, 8, 8}, 0, 1, 0.00001f, 3, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::FP32, Precision::I8 },
 
-                        mvn_test_params{{2, 64, 15, 15}, 0, 1, 0.00001, 1, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::I8, Precision::I8 },
-                        mvn_test_params{{2,  2, 33, 65}, 0, 1, 0.00001, 1, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::I8, Precision::I8 },
-                        mvn_test_params{{2, 64, 8, 8, 8}, 0, 1, 0.00001f, 1, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::I8, Precision::I8 },
+                        mvn_test_params{{2, 64, 15, 15}, 0, 1, 0.00001, 3, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::I8, Precision::I8 },
+                /*16*/  // mvn_test_params{{2,  2, 33, 65}, 0, 1, 0.00001, 3, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::I8, Precision::I8 },
+                        mvn_test_params{{2, 64, 8, 8, 8}, 0, 1, 0.00001f, 3, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::I8, Precision::I8 },
 
-                        mvn_test_params{{2, 64, 15, 15}, 0, 1, 0.00001f, 1, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::I8, Precision::FP32 },
-                        mvn_test_params{{2,  2, 33, 65}, 0, 1, 0.00001f, 1, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::I8, Precision::FP32 },
-                        mvn_test_params{{2, 64, 8, 8, 8}, 0, 1, 0.00001f, 1, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::I8, Precision::FP32 },
+                        mvn_test_params{{2, 64, 15, 15}, 0, 1, 0.00001f, 3, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::I8, Precision::FP32 },
+                        mvn_test_params{{2,  2, 33, 65}, 0, 1, 0.00001f, 3, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::I8, Precision::FP32 },
+                        mvn_test_params{{2, 64, 8, 8, 8}, 0, 1, 0.00001f, 3, false, MKLDNNPlugin::impl_desc_type::unknown, Precision::I8, Precision::FP32 },
 
                         mvn_test_params{{2, 64, 15, 15}, 0, 1, 0.00001, 3, true, MKLDNNPlugin::impl_desc_type::unknown, Precision::FP32, Precision::FP32 },
                         mvn_test_params{{2,  2, 33, 65}, 0, 1, 0.00001, 3, true, MKLDNNPlugin::impl_desc_type::unknown, Precision::FP32, Precision::FP32 },

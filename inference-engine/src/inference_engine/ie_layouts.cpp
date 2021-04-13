@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -9,24 +9,24 @@
 
 using namespace InferenceEngine;
 
-TensorDesc::TensorDesc(const Precision& precision, SizeVector dims, Layout layout)
-    : blockingDesc(dims, layout), precision(precision) {
+TensorDesc::TensorDesc(const Precision& precision, const SizeVector& dims, Layout layout)
+    : precision(precision), blockingDesc(dims, layout) {
     this->dims = dims;
     this->layout = layout;
 }
 
-TensorDesc::TensorDesc(const Precision& precision, Layout layout): blockingDesc(), precision(precision) {
+TensorDesc::TensorDesc(const Precision& precision, Layout layout): precision(precision), blockingDesc() {
     this->layout = layout;
 }
 
-TensorDesc::TensorDesc(const Precision& precision, SizeVector dims, const BlockingDesc& blockDesc)
-    : dims(dims), blockingDesc(blockDesc), precision(precision) {
+TensorDesc::TensorDesc(const Precision& precision, const SizeVector& dims, const BlockingDesc& blockDesc)
+    : dims(dims), precision(precision), blockingDesc(blockDesc) {
     if (dims.size() == 0 || blockingDesc.getBlockDims().size() == 0) {
         layout = Layout::SCALAR;
         return;
     }
     if (dims.size() != *std::max_element(blockDesc.getOrder().begin(), blockDesc.getOrder().end()) + 1)
-        THROW_IE_EXCEPTION << "Cannot create TensorDesc! Blocked dims are inconsistent with original dims.";
+        IE_THROW() << "Cannot create TensorDesc! Blocked dims are inconsistent with original dims.";
 
     layout = Layout::BLOCKED;
     if (dims.size() == blockingDesc.getBlockDims().size()) {
@@ -43,6 +43,8 @@ TensorDesc::TensorDesc(const Precision& precision, SizeVector dims, const Blocki
         case 3:
             if (blockingDesc.getOrder()[0] == 0 && blockingDesc.getOrder()[1] == 1 && blockingDesc.getOrder()[2] == 2) {
                 layout = Layout::CHW;
+            } else if (blockingDesc.getOrder()[0] == 1 && blockingDesc.getOrder()[1] == 2 && blockingDesc.getOrder()[2] == 0) {
+                layout = Layout::HWC;
             }
             break;
         case 4:
@@ -88,7 +90,7 @@ void TensorDesc::setDims(const SizeVector& dims) {
         blockingDesc = BlockingDesc(newDims, newOrder);
     } else {
         if (layout == Layout::SCALAR && (dims.size() > 1 || (dims.size() == 1 && dims[0] != 1)))
-            THROW_IE_EXCEPTION << "Cannot set dimensions for SCALAR layout!";
+            IE_THROW() << "Cannot set dimensions for SCALAR layout!";
         blockingDesc = BlockingDesc(dims, layout);
     }
     if (layout != Layout::SCALAR) this->dims = dims;
@@ -123,6 +125,7 @@ void TensorDesc::setLayout(Layout l) {
         inconsistentLayout = dims.size() != 4;
         break;
     case Layout::CHW:
+    case Layout::HWC:
         inconsistentLayout = dims.size() != 3;
         break;
     case Layout::CN:
@@ -135,7 +138,7 @@ void TensorDesc::setLayout(Layout l) {
     }
 
     if (inconsistentLayout) {
-        THROW_IE_EXCEPTION << "Size of dims(" << std::to_string(dims.size()) << ") and format(" << l
+        IE_THROW() << "Size of dims(" << std::to_string(dims.size()) << ") and format(" << l
                            << ") are inconsistent.";
     }
 
@@ -158,7 +161,7 @@ bool TensorDesc::operator!=(const TensorDesc& rhs) const {
     return !(*this == rhs);
 }
 
-Layout TensorDesc::getLayoutByDims(SizeVector dims) {
+Layout TensorDesc::getLayoutByDims(const SizeVector& dims) {
     switch (dims.size()) {
     case 0:
         return Layout::SCALAR;
@@ -178,7 +181,7 @@ Layout TensorDesc::getLayoutByDims(SizeVector dims) {
 }
 
 size_t TensorDesc::offset(const SizeVector& v) const {
-    if (layout == Layout::ANY) THROW_IE_EXCEPTION << "Cannot calculate offset for any format!";
+    if (layout == Layout::ANY) IE_THROW() << "Cannot calculate offset for any format!";
 
     if (layout == Layout::SCALAR) return blockingDesc.getOffsetPadding();
 
@@ -189,7 +192,7 @@ size_t TensorDesc::offset(const SizeVector& v) const {
 
     size_t n_blocked_dims = order.size();
     if (blockedDims.size() != n_blocked_dims || strides.size() != n_blocked_dims) {
-        THROW_IE_EXCEPTION << "Cannot calculate offset. Incorrect primitive descriptor!";
+        IE_THROW() << "Cannot calculate offset. Incorrect primitive descriptor!";
     }
     SizeVector blockedShift(n_blocked_dims);
     for (size_t i = 1; i <= n_blocked_dims; i++) {
@@ -197,7 +200,7 @@ size_t TensorDesc::offset(const SizeVector& v) const {
         off_v[order[n_blocked_dims - i]] /= blockedDims[n_blocked_dims - i];
     }
     size_t offset = blockingDesc.getOffsetPadding();
-    for (int d = 0; d < n_blocked_dims; ++d) {
+    for (size_t d = 0; d < n_blocked_dims; ++d) {
         const size_t p = blockedShift[d] + blockingDesc.getOffsetPaddingToData()[d];
         offset += p * strides[d];
     }
@@ -207,7 +210,7 @@ size_t TensorDesc::offset(const SizeVector& v) const {
 size_t TensorDesc::offset(size_t l) const {
     size_t n_dims = dims.size();
     SizeVector pos(n_dims);
-    for (int rd = 1; rd <= n_dims; ++rd) {
+    for (size_t rd = 1; rd <= n_dims; ++rd) {
         const size_t d = n_dims - rd;
         const size_t cur_dim = dims[d];
         pos[d] = l % cur_dim;
@@ -218,7 +221,7 @@ size_t TensorDesc::offset(size_t l) const {
 
 void TensorDesc::reshape(const SizeVector& dims, Layout layout) {
     for (auto& padd : blockingDesc.getOffsetPaddingToData()) {
-        if (padd) THROW_IE_EXCEPTION << "Cannot reshape a non-packaged blob!";
+        if (padd) IE_THROW() << "Cannot reshape a non-packaged blob!";
     }
     if (layout != Layout::ANY) {
         blockingDesc = BlockingDesc(dims, layout);
@@ -249,22 +252,22 @@ BlockingDesc::BlockingDesc(const SizeVector& blocked_dims, const SizeVector& ord
 }
 
 BlockingDesc::BlockingDesc(const SizeVector& blocked_dims, const SizeVector& order, size_t offset,
-                           SizeVector dimOffsets)
+                           const SizeVector& dimOffsets)
     : BlockingDesc(blocked_dims, order) {
     this->offsetPadding = offset;
     if (blocked_dims.size() != dimOffsets.size())
-        THROW_IE_EXCEPTION << "Offsets are not initialized for all dimensions.";
+        IE_THROW() << "Offsets are not initialized for all dimensions.";
     this->offsetPaddingToData = dimOffsets;
 }
 
 BlockingDesc::BlockingDesc(const SizeVector& blocked_dims, const SizeVector& order, size_t offset,
-                           SizeVector dimOffsets, SizeVector strides)
+                           const SizeVector& dimOffsets, const SizeVector& strides)
     : BlockingDesc(blocked_dims, order) {
     this->offsetPadding = offset;
-    if (blocked_dims.size() != strides.size()) THROW_IE_EXCEPTION << "Strides are not initialized for all dimensions.";
+    if (blocked_dims.size() != strides.size()) IE_THROW() << "Strides are not initialized for all dimensions.";
     this->strides = strides;
     if (blocked_dims.size() != dimOffsets.size())
-        THROW_IE_EXCEPTION << "Offsets are not initialized for all dimensions.";
+        IE_THROW() << "Offsets are not initialized for all dimensions.";
     this->offsetPaddingToData = dimOffsets;
 }
 
@@ -273,7 +276,7 @@ BlockingDesc::BlockingDesc(const SizeVector& dims, Layout layout): offsetPadding
 
     offsetPadding = 0;
     auto checkDims = [](size_t r_size, size_t e_size) {
-        if (r_size != e_size) THROW_IE_EXCEPTION << "Dims and format are inconsistent.";
+        if (r_size != e_size) IE_THROW() << "Dims and format are inconsistent.";
     };
     SizeVector l_order;
     SizeVector l_dims;
@@ -319,6 +322,11 @@ BlockingDesc::BlockingDesc(const SizeVector& dims, Layout layout): offsetPadding
         l_order = {0, 1, 2};
         l_dims = dims;
         break;
+    case Layout::HWC:
+        checkDims(dims.size(), 3);
+        l_order = {1, 2, 0};
+        l_dims = {dims[1], dims[2], dims[0]};
+        break;
     case Layout::CN:
         checkDims(dims.size(), 2);
         l_order = {1, 0};
@@ -342,9 +350,9 @@ BlockingDesc::BlockingDesc(const SizeVector& dims, Layout layout): offsetPadding
 
 void BlockingDesc::fillDesc(const SizeVector& blocked_dims, const SizeVector& order) {
     if (order.size() != blocked_dims.size())
-        THROW_IE_EXCEPTION << "Cannot fill descriptor. Size of dimensions and order vector don't match.";
+        IE_THROW() << "Cannot fill descriptor. Size of dimensions and order vector don't match.";
     if (blocked_dims.empty() || order.empty())
-        THROW_IE_EXCEPTION << "Cannot fill descriptor. Dimensions and order vector are empty.";
+        IE_THROW() << "Cannot fill descriptor. Dimensions and order vector are empty.";
     this->order = order;
     this->blockedDims = blocked_dims;
     offsetPadding = 0;
@@ -367,4 +375,118 @@ bool BlockingDesc::operator==(const BlockingDesc& rhs) const {
 
 bool BlockingDesc::operator!=(const BlockingDesc& rhs) const {
     return !(*this == rhs);
+}
+
+namespace {
+
+struct DimSlice {
+    size_t startInd = 0;
+    size_t size = 0;
+
+    DimSlice() = default;
+
+    DimSlice(size_t startInd, size_t size) :
+        startInd(startInd), size(size) {
+    }
+};
+
+using TensorSlice = std::vector<DimSlice>;
+
+void checkROI(
+        const TensorDesc& origDesc,
+        const TensorSlice& roi) {
+    const auto numDims = origDesc.getDims().size();
+
+    if (roi.size() != numDims) {
+        IE_THROW()
+            << "ROI num dims " << roi.size() <<
+            " differs from original num dims " << numDims;
+    }
+
+    // TensorDesc stores dimensions in standard layout, as well as roi vector
+    for (size_t dimInd = 0; dimInd < numDims; ++dimInd) {
+        const auto fullSize = origDesc.getDims()[dimInd];
+
+        const auto& roiSlice = roi[dimInd];
+        const auto endInd = roiSlice.startInd + roiSlice.size;
+
+        if (endInd > fullSize) {
+            IE_THROW()
+                << "ROI [" << roiSlice.startInd << ", " << endInd << ")"
+                << " is out of range " << fullSize
+                << " for dimension " << dimInd;
+        }
+    }
+}
+
+TensorDesc make_roi_desc(
+        const TensorDesc& origDesc,
+        const TensorSlice& roi,
+        bool useOrigMemDesc) {
+    const auto numDims = origDesc.getDims().size();
+
+    checkROI(origDesc, roi);
+
+    const auto origPrecision = origDesc.getPrecision();
+
+    const auto& origBlkDesc = origDesc.getBlockingDesc();
+    const auto& origBlkStrides = origBlkDesc.getStrides();
+    const auto& origBlkOrder = origBlkDesc.getOrder();
+
+    SizeVector roiDims(numDims);
+    SizeVector roiBlkDims(numDims);
+    SizeVector roiBlkDimOffsets = origBlkDesc.getOffsetPaddingToData();
+    size_t roiBlkOffset = origBlkDesc.getOffsetPadding();
+
+    IE_ASSERT(origBlkStrides.size() == numDims);
+    IE_ASSERT(origBlkOrder.size() == numDims);
+    IE_ASSERT(roiBlkDimOffsets.size() == numDims);
+
+    // BlockingDesc stores dimensions in memory order, so we need to use origOrder array.
+    // Offsets in `roi` relates to `origDesc` dimensions, while offsets in `BlockingDesc` relates to top parent tensor dimensions.
+    for (size_t memInd = 0; memInd < numDims; ++memInd) {
+        const auto dimInd = origBlkOrder[memInd];
+        const auto& roiSlice = roi[dimInd];
+
+        roiDims[dimInd] = roiSlice.size;
+        roiBlkDims[memInd] = roiSlice.size;
+        roiBlkDimOffsets[memInd] += roiSlice.startInd;
+        roiBlkOffset += roiSlice.startInd * origBlkStrides[memInd];
+    }
+
+    const auto roiBlkDesc =
+        useOrigMemDesc ?
+            BlockingDesc(roiBlkDims, origBlkOrder, roiBlkOffset, roiBlkDimOffsets, origBlkStrides) :
+            BlockingDesc(roiBlkDims, origBlkOrder);
+
+    const auto roiDesc = TensorDesc(origPrecision, roiDims, roiBlkDesc);
+
+    return roiDesc;
+}
+
+TensorSlice make_roi_slice(
+        const TensorDesc& origDesc,
+        const ROI& roi) {
+    const auto layout = origDesc.getLayout();
+    if (layout != Layout::NCHW && layout != Layout::NHWC) {
+        IE_THROW()
+            << "Unsupported layout " << layout;
+    }
+
+    TensorSlice roiSlice(4);
+    roiSlice[0] = DimSlice {roi.id, 1};                 // N
+    roiSlice[1] = DimSlice {0, origDesc.getDims()[1]};  // C
+    roiSlice[2] = DimSlice {roi.posY, roi.sizeY};       // H
+    roiSlice[3] = DimSlice {roi.posX, roi.sizeX};       // W
+
+    return roiSlice;
+}
+
+}  // namespace
+
+TensorDesc InferenceEngine::make_roi_desc(
+        const TensorDesc& origDesc,
+        const ROI& roi,
+        bool useOrigMemDesc) {
+    return make_roi_desc(origDesc, make_roi_slice(origDesc, roi), useOrigMemDesc);
 }

@@ -1,16 +1,6 @@
-// Copyright (c) 2016-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
 
 #pragma once
 
@@ -25,8 +15,6 @@ enum class KernelType {
     UNKNOWN,
     ARG_MAX_MIN,
     AVERAGE_UNPOOLING,
-    BATCH_NORM_GRAD,
-    LOOKUP_TABLE,
     CONVOLUTION,
     DECONVOLUTION,
     LRN,
@@ -38,9 +26,7 @@ enum class KernelType {
     SOFT_MAX,
     ELTWISE,
     SCALE,
-    FUSED_CONV_BN_SCALE,
     FUSED_CONV_ELTWISE,
-    TABLE_LOOKUP,
     REORDER,
     RESHAPE,
     PERMUTE,
@@ -49,27 +35,24 @@ enum class KernelType {
     REGION_YOLO,
     REORG_YOLO,
     MAX_UNPOOLING,
-    CONVOLUTION_GRAD_WEIGHTS,
-    SCALE_GRAD_WEIGHTS,
     MVN,
-    FULLY_CONNECTED_GRAD_INPUT,
-    FULLY_CONNECTED_GRAD_WEIGHTS,
     LSTM_GEMM,
     LSTM_ELT,
-    EMBED,
-    SOFT_MAX_LOSS_GRAD,
     BORDER,
     TILE,
     SELECT,
     BROADCAST,
     GEMM,
-    INDEX_SELECT,
     PYRAMID_ROI_ALIGN,
     CONTRACT,
     ONE_HOT,
-    DETECTION_OUTPUT,
     GATHER,
+    GATHER_ND,
+    SCATTER_UPDATE,
+    SCATTER_ND_UPDATE,
+    SCATTER_ELEMENTS_UPDATE,
     DEPTH_TO_SPACE,
+    BATCH_TO_SPACE,
     SHUFFLE_CHANNELS,
     STRIDED_SLICE,
     REVERSE_SEQUENCE,
@@ -79,7 +62,13 @@ enum class KernelType {
     LSTM_DYNAMIC_TIMELOOP,
     REDUCE,
     GATHER_TREE,
-    SPACE_TO_DEPTH
+    SPACE_TO_DEPTH,
+    SPACE_TO_BATCH,
+    GRN,
+    CTC_GREEDY_DECODER,
+    CUM_SUM,
+    EMBEDDING_BAG,
+    EXTRACT_IMAGE_PATCHES
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -126,8 +115,6 @@ enum class ActivationFunction {
     SQRT,
     LINEAR,
     ELU,
-    RELU_GRAD,
-    RELU_NEGATIVE_SLOPE_GRAD,
     SIN,
     ASIN,
     SINH,
@@ -148,15 +135,20 @@ enum class ActivationFunction {
     NEGATIVE,
     NOT,
     POW,
-    NONE_GRAD,
     ERF,
     HARD_SIGMOID,
+    HSIGMOID,
     RECIPROCAL,
     SELU,
     SIGN,
     SOFTPLUS,
     SOFTSIGN,
-    SWISH
+    SWISH,
+    HSWISH,
+    MISH,
+    GELU,
+    ROUND_HALF_TO_EVEN,
+    ROUND_HALF_AWAY_FROM_ZERO
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -250,6 +242,14 @@ enum class NormalizeMode {
 enum class MVNMode {
     ACROSS_CHANNELS,
     WITHIN_CHANNELS
+};
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// MVNEpsMode
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+enum class MVNEpsMode {
+    INSIDE_SQRT,
+    OUTSIDE_SQRT
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -356,14 +356,11 @@ enum class ConcatAxis {
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-// TileAxis
+// DepthToSpaceMode
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-enum class TileAxis {
-    X,
-    Y,
-    Z,
-    FEATURE,
-    BATCH,
+enum class DepthToSpaceMode {
+    BLOCKS_FIRST,
+    DEPTH_FIRST,
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -373,6 +370,38 @@ enum class ResampleType {
     NEAREST_NEIGHBOR,
     BILINEAR_INTERP,
     CAFFE_BILINEAR_INTERP,
+    CUBIC,
+    LINEAR_ONNX,
+};
+
+enum class CoordinateTransformationMode {
+    HALF_PIXEL,
+    PYTORCH_HALF_PIXEL,
+    ASYMMETRIC,
+    TF_HALF_PIXEL_FOR_NN,
+    ALIGN_CORNERS,
+};
+
+enum class NearestMode {
+    ROUND_PREFER_FLOOR,
+    ROUND_PREFER_CEIL,
+    FLOOR,
+    CEIL,
+    SIMPLE,
+};
+
+enum class ShapeCalculationMode {
+    SIZES,
+    SCALES,
+};
+
+enum class InterpolateAxis {
+    X,
+    Y,
+    Z,
+    W,
+    FEATURE,
+    BATCH
 };
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -477,6 +506,20 @@ enum class ContractMode {
 enum class GatherAxis {
     X,
     Y,
+    Z,
+    W,
+    FEATURE,
+    BATCH,
+};
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// ScatterUpdateAxis
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+enum class ScatterUpdateAxis {
+    X,
+    Y,
+    Z,
+    W,
     FEATURE,
     BATCH,
 };
@@ -516,5 +559,25 @@ enum class QuantizationType {
 enum class SpaceToDepthMode {
     DEPTH_FIRST,
     BLOCKS_FIRST
+};
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// CumSumAxis
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+enum class CumSumAxis {
+    X,
+    Y,
+    Z,
+    W,
+    FEATURE,
+    BATCH
+};
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// EmbeddingBagType
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+enum class EmbeddingBagType {
+    PACKED_SUM,
+    OFFSETS_SUM,
+    SEGMENTS_SUM
 };
 }  // namespace kernel_selector

@@ -1,18 +1,6 @@
-/*
-// Copyright (c) 2016-2019 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
 
 #include "scale_inst.h"
 #include "primitive_type_base.h"
@@ -27,8 +15,7 @@ primitive_type_id scale::type_id() {
 }
 
 layout scale_inst::calc_output_layout(scale_node const& node) {
-    assert(static_cast<bool>(node.get_primitive()->output_data_type) == false &&
-           "Output data type forcing is not supported for scale_node!");
+    auto desc = node.get_primitive();
     auto result = node.input().get_non_padded_output_layout();
 
     auto scale_sizes = node.scale_in().get_non_padded_output_layout().size;
@@ -46,6 +33,13 @@ layout scale_inst::calc_output_layout(scale_node const& node) {
         (node.scale_in().get_non_padded_output_layout().data_type == data_types::f32 ||
          node.scale_in().get_non_padded_output_layout().data_type == data_types::f16))
         result.data_type = node.scale_in().get_non_padded_output_layout().data_type;
+
+    if (desc->output_data_type)
+        result.data_type = *desc->output_data_type;
+
+    if (node.has_fused_primitives()) {
+        result.data_type = node.get_fused_output_layout().data_type;
+    }
 
     if (scale_x_size != 1) {
         CLDNN_ERROR_NOT_EQUAL(node.id(), "Scale x size", scale_x_size, "input x size", input_x_size, "");

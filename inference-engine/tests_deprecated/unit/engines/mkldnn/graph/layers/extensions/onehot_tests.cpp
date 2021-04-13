@@ -1,19 +1,14 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
-
-#include <gtest/gtest.h>
-#include <gmock/gmock-spec-builders.h>
-#include "mkldnn_graph.h"
 
 #include "test_graph.hpp"
 
 #include "single_layer_common.hpp"
-#include <mkldnn_extension_utils.h>
 #include "tests_common.hpp"
 
 #include "single_layer_common.hpp"
-#include "cpp/ie_cnn_net_reader.h"
+#include <ie_core.hpp>
 
 using namespace ::testing;
 using namespace InferenceEngine;
@@ -27,19 +22,19 @@ struct one_hot_base_params {
 };
 
 struct one_hot_test_params : one_hot_base_params {
-    std::string libraryName;
+    std::string device_name;
 
     one_hot_test_params(std::string name, one_hot_base_params params) :
-            one_hot_base_params(params), libraryName(name) {}
+            one_hot_base_params(params), device_name(name) {}
 };
 
 class OneHotOnly1dTest: public TestsCommon,
                        public WithParamInterface<one_hot_test_params> {
 
     std::string model_t = R"V0G0N(
-<net name="OneHot_Only" version="2" precision="FP32" batch="1">
+<net name="OneHot_Only" version="2" precision="I32" batch="1">
     <layers>
-        <layer id="1" name="input" precision="FP32" type="Input">
+        <layer id="1" name="input" precision="I32" type="Input">
             <output>
                 <port id="0">
                     <dim>1</dim>
@@ -109,21 +104,22 @@ protected:
             one_hot_test_params p = ::testing::WithParamInterface<one_hot_test_params>::GetParam();
             std::string model = getModel(p);
 
-            CNNNetReader net_reader;
+            InferenceEngine::Core core;
+            InferenceEngine::CNNNetwork network;
             try {
-                net_reader.ReadNetwork(model.data(), model.length());
-            } catch (InferenceEngine::details::InferenceEngineException &e) {
+                network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr());
+            } catch (InferenceEngine::Exception &e) {
                 FAIL() << e.what();
             } catch (std::exception &e) {
                 FAIL() << e.what();
             }
 
             MKLDNNGraphTestClass graph;
-            graph.CreateGraph(net_reader.getNetwork());
+            graph.CreateGraph(network);
 
             // Output Data
             InferenceEngine::OutputsDataMap out;
-            out = net_reader.getNetwork().getOutputsInfo();
+            out = network.getOutputsInfo();
             InferenceEngine::BlobMap outputBlobs;
 
             std::pair<std::string, InferenceEngine::DataPtr> item = *out.begin();
@@ -152,7 +148,7 @@ protected:
             // Infer
             graph.Infer(srcs, outputBlobs);
             compare(*output, dst_ref);
-        } catch (const InferenceEngine::details::InferenceEngineException &e) {
+        } catch (const InferenceEngine::Exception &e) {
             FAIL() << e.what();
         }
     }
@@ -164,9 +160,9 @@ class OneHotOnly2dTest: public TestsCommon,
                        public WithParamInterface<one_hot_test_params> {
 
     std::string model_t = R"V0G0N(
-<net name="OneHot_Only" version="2" precision="FP32" batch="1">
+<net name="OneHot_Only" version="2" precision="I32" batch="1">
     <layers>
-        <layer id="1" name="input" precision="FP32" type="Input">
+        <layer id="1" name="input" precision="I32" type="Input">
             <output>
                 <port id="0">
                     <dim>_IW_</dim>
@@ -247,21 +243,22 @@ protected:
             one_hot_test_params p = ::testing::WithParamInterface<one_hot_test_params>::GetParam();
             std::string model = getModel(p);
 
-            CNNNetReader net_reader;
+            InferenceEngine::Core core;
+            InferenceEngine::CNNNetwork network;
             try {
-                net_reader.ReadNetwork(model.data(), model.length());
-            } catch (InferenceEngine::details::InferenceEngineException &e) {
+                network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr());
+            } catch (InferenceEngine::Exception &e) {
                 FAIL() << e.what();
             } catch (std::exception &e) {
                 FAIL() << e.what();
             }
 
             MKLDNNGraphTestClass graph;
-            graph.CreateGraph(net_reader.getNetwork());
+            graph.CreateGraph(network);
 
             // Output Data
             InferenceEngine::OutputsDataMap out;
-            out = net_reader.getNetwork().getOutputsInfo();
+            out = network.getOutputsInfo();
             InferenceEngine::BlobMap outputBlobs;
 
             std::pair<std::string, InferenceEngine::DataPtr> item = *out.begin();
@@ -295,7 +292,7 @@ protected:
             // Infer
             graph.Infer(srcs, outputBlobs);
             compare(*output, dst_ref);
-        } catch (const InferenceEngine::details::InferenceEngineException &e) {
+        } catch (const InferenceEngine::Exception &e) {
             FAIL() << e.what();
         }
     }
@@ -306,9 +303,9 @@ class OneHotOnly3dTest: public TestsCommon,
                        public WithParamInterface<one_hot_test_params> {
 
     std::string model_t = R"V0G0N(
-<net name="OneHot_Only" version="2" precision="FP32" batch="1">
+<net name="OneHot_Only" version="2" precision="I32" batch="1">
     <layers>
-        <layer id="1" name="input" precision="FP32" type="Input">
+        <layer id="1" name="input" precision="I32" type="Input">
             <output>
                 <port id="0">
                     <dim>_IH_</dim>
@@ -398,21 +395,22 @@ protected:
             one_hot_test_params p = ::testing::WithParamInterface<one_hot_test_params>::GetParam();
             std::string model = getModel(p);
 
-            CNNNetReader net_reader;
+            InferenceEngine::Core core;
+            InferenceEngine::CNNNetwork network;
             try {
-                net_reader.ReadNetwork(model.data(), model.length());
-            } catch (InferenceEngine::details::InferenceEngineException &e) {
+                network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr());
+            } catch (InferenceEngine::Exception &e) {
                 FAIL() << e.what();
             } catch (std::exception &e) {
                 FAIL() << e.what();
             }
 
             MKLDNNGraphTestClass graph;
-            graph.CreateGraph(net_reader.getNetwork());
+            graph.CreateGraph(network);
 
             // Output Data
             InferenceEngine::OutputsDataMap out;
-            out = net_reader.getNetwork().getOutputsInfo();
+            out = network.getOutputsInfo();
             InferenceEngine::BlobMap outputBlobs;
 
             std::pair<std::string, InferenceEngine::DataPtr> item = *out.begin();
@@ -426,7 +424,7 @@ protected:
             InferenceEngine::TBlob<float> dst_ref(item.second->getTensorDesc());
             dst_ref.allocate();
 
-            SizeVector dims_src = {p.in.w, p.in.h};
+            SizeVector dims_src = {p.in.h, p.in.w};
             TBlob<float> src({Precision::FP32, dims_src, Layout::HW});
             src.allocate();
             float * s = src.buffer().as<float*>();
@@ -446,7 +444,7 @@ protected:
             // Infer
             graph.Infer(srcs, outputBlobs);
             compare(*output, dst_ref);
-        } catch (const InferenceEngine::details::InferenceEngineException &e) {
+        } catch (const InferenceEngine::Exception &e) {
             FAIL() << e.what();
         }
     }
@@ -456,9 +454,9 @@ class OneHotOnly4dTest: public TestsCommon,
                        public WithParamInterface<one_hot_test_params> {
 
     std::string model_t = R"V0G0N(
-<net name="OneHot_Only" version="2" precision="FP32" batch="1">
+<net name="OneHot_Only" version="2" precision="I32" batch="1">
     <layers>
-        <layer id="1" name="input" precision="FP32" type="Input">
+        <layer id="1" name="input" precision="I32" type="Input">
             <output>
                 <port id="0">
                     <dim>_IC_</dim>
@@ -555,21 +553,22 @@ protected:
             one_hot_test_params p = ::testing::WithParamInterface<one_hot_test_params>::GetParam();
             std::string model = getModel(p);
 
-            CNNNetReader net_reader;
+            InferenceEngine::Core core;
+            InferenceEngine::CNNNetwork network;
             try {
-                net_reader.ReadNetwork(model.data(), model.length());
-            } catch (InferenceEngine::details::InferenceEngineException &e) {
+                network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr());
+            } catch (InferenceEngine::Exception &e) {
                 FAIL() << e.what();
             } catch (std::exception &e) {
                 FAIL() << e.what();
             }
 
             MKLDNNGraphTestClass graph;
-            graph.CreateGraph(net_reader.getNetwork());
+            graph.CreateGraph(network);
 
             // Output Data
             InferenceEngine::OutputsDataMap out;
-            out = net_reader.getNetwork().getOutputsInfo();
+            out = network.getOutputsInfo();
             InferenceEngine::BlobMap outputBlobs;
 
             std::pair<std::string, InferenceEngine::DataPtr> item = *out.begin();
@@ -583,7 +582,7 @@ protected:
             InferenceEngine::TBlob<float> dst_ref(item.second->getTensorDesc());
             dst_ref.allocate();
 
-            SizeVector dims_src = {p.in.w, p.in.h, p.in.c};
+            SizeVector dims_src = {p.in.c, p.in.h, p.in.w};
 
             TBlob<float> src({Precision::FP32, dims_src, Layout::CHW});
             src.allocate();
@@ -605,7 +604,7 @@ protected:
             // Infer
             graph.Infer(srcs, outputBlobs);
             compare(*output, dst_ref);
-        } catch (const InferenceEngine::details::InferenceEngineException &e) {
+        } catch (const InferenceEngine::Exception &e) {
             FAIL() << e.what();
         }
     }
@@ -616,9 +615,9 @@ class OneHotOnly5dTest: public TestsCommon,
                        public WithParamInterface<one_hot_test_params> {
 
     std::string model_t = R"V0G0N(
-<net name="OneHot_Only" version="2" precision="FP32" batch="1">
+<net name="OneHot_Only" version="2" precision="I32" batch="1">
     <layers>
-        <layer id="1" name="input" precision="FP32" type="Input">
+        <layer id="1" name="input" precision="I32" type="Input">
             <output>
                 <port id="0">
                     <dim>_IN_</dim>
@@ -726,21 +725,22 @@ protected:
             one_hot_test_params p = ::testing::WithParamInterface<one_hot_test_params>::GetParam();
             std::string model = getModel(p);
 
-            CNNNetReader net_reader;
+            InferenceEngine::Core core;
+            InferenceEngine::CNNNetwork network;
             try {
-                net_reader.ReadNetwork(model.data(), model.length());
-            } catch (InferenceEngine::details::InferenceEngineException &e) {
+                network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr());
+            } catch (InferenceEngine::Exception &e) {
                 FAIL() << e.what();
             } catch (std::exception &e) {
                 FAIL() << e.what();
             }
 
             MKLDNNGraphTestClass graph;
-            graph.CreateGraph(net_reader.getNetwork());
+            graph.CreateGraph(network);
 
             // Output Data
             InferenceEngine::OutputsDataMap out;
-            out = net_reader.getNetwork().getOutputsInfo();
+            out = network.getOutputsInfo();
             InferenceEngine::BlobMap outputBlobs;
 
             std::pair<std::string, InferenceEngine::DataPtr> item = *out.begin();
@@ -754,7 +754,7 @@ protected:
             InferenceEngine::TBlob<float> dst_ref(item.second->getTensorDesc());
             dst_ref.allocate();
 
-            SizeVector dims_src = {p.in.w, p.in.h, p.in.c, p.in.n};
+            SizeVector dims_src = {p.in.n, p.in.c, p.in.h, p.in.w};
 
             TBlob<float> src({Precision::FP32, dims_src, Layout::NCHW});
             src.allocate();
@@ -777,7 +777,7 @@ protected:
             // Infer
             graph.Infer(srcs, outputBlobs);
             compare(*output, dst_ref);
-        } catch (const InferenceEngine::details::InferenceEngineException &e) {
+        } catch (const InferenceEngine::Exception &e) {
             FAIL() << e.what();
         }
     }
@@ -807,34 +807,34 @@ protected:
 #define case_5d_4 one_hot_base_params({ {1, 3, 2, 3}, {2, 1, 3, 4, 3}, 3, 4, 1.0f, 0.0f })
 
 one_hot_test_params one_hot_only_1d_test_cases[] = {
-    one_hot_test_params("MKLDNNPlugin", case_1d_0),
-    one_hot_test_params("MKLDNNPlugin", case_1d_1)
+    one_hot_test_params("CPU", case_1d_0),
+    one_hot_test_params("CPU", case_1d_1)
 };
 
 one_hot_test_params one_hot_only_2d_test_cases[] = {
-    one_hot_test_params("MKLDNNPlugin", case_2d_0),
-    one_hot_test_params("MKLDNNPlugin", case_2d_1),
-    one_hot_test_params("MKLDNNPlugin", case_2d_2),
+    one_hot_test_params("CPU", case_2d_0),
+    one_hot_test_params("CPU", case_2d_1),
+    one_hot_test_params("CPU", case_2d_2),
 };
 
 one_hot_test_params one_hot_only_3d_test_cases[] = {
-    one_hot_test_params("MKLDNNPlugin", case_3d_0),
-    one_hot_test_params("MKLDNNPlugin", case_3d_1),
-    one_hot_test_params("MKLDNNPlugin", case_3d_2),
+    one_hot_test_params("CPU", case_3d_0),
+    one_hot_test_params("CPU", case_3d_1),
+    one_hot_test_params("CPU", case_3d_2),
 };
 one_hot_test_params one_hot_only_4d_test_cases[] = {
-    one_hot_test_params("MKLDNNPlugin", case_4d_0),
-    one_hot_test_params("MKLDNNPlugin", case_4d_1),
-    one_hot_test_params("MKLDNNPlugin", case_4d_2),
-    one_hot_test_params("MKLDNNPlugin", case_4d_3)
+    one_hot_test_params("CPU", case_4d_0),
+    one_hot_test_params("CPU", case_4d_1),
+    one_hot_test_params("CPU", case_4d_2),
+    one_hot_test_params("CPU", case_4d_3)
 };
 
 one_hot_test_params one_hot_only_5d_test_cases[] = {
-    one_hot_test_params("MKLDNNPlugin", case_5d_0),
-    one_hot_test_params("MKLDNNPlugin", case_5d_1),
-    one_hot_test_params("MKLDNNPlugin", case_5d_2),
-    one_hot_test_params("MKLDNNPlugin", case_5d_3),
-    one_hot_test_params("MKLDNNPlugin", case_5d_4)
+    one_hot_test_params("CPU", case_5d_0),
+    one_hot_test_params("CPU", case_5d_1),
+    one_hot_test_params("CPU", case_5d_2),
+    one_hot_test_params("CPU", case_5d_3),
+    one_hot_test_params("CPU", case_5d_4)
 };
 
 TEST_P(OneHotOnly1dTest, TestsOneHot) {}

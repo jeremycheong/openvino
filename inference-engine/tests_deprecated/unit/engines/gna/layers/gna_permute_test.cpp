@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -64,9 +64,9 @@ const Permute3dimTestParam gna_permute3d_test_params[] = {
         {{{1, 0, 2}, {8, 1, 1}}, true},
         {{{1, 0, 2}, {4, 2, 1}}, false},
         {{{1, 0, 2}, {2, 4, 1}}, false},
-        {{{1, 2, 0}, {1, 2, 4}}, false},
-        {{{0, 1, 2}, {1, 2, 4}}, false},
-        {{{0, 2, 1}, {2, 1, 4}}, false},
+        {{{1, 2, 0}, {1, 2, 4}}, true},
+        {{{0, 1, 2}, {1, 2, 4}}, true},
+        {{{0, 2, 1}, {2, 1, 4}}, true},
         {{{2, 0, 1}, {1, 2, 4}}, false},
         {{{2, 1, 0}, {2, 1, 4}}, false}
 };

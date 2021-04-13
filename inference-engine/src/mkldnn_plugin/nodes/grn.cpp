@@ -1,8 +1,7 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "list.hpp"
 #include "base.hpp"
 
 #include <cmath>
@@ -19,12 +18,12 @@ public:
     explicit GRNImpl(const CNNLayer* layer) {
         try {
             if (layer->insData.size() != 1 || layer->outData.empty())
-                THROW_IE_EXCEPTION << "Incorrect number of input/output edges!";
+                IE_THROW() << "Incorrect number of input/output edges!";
 
             bias = layer->GetParamAsFloat("bias");
 
-            addConfig(layer, {{ConfLayout::PLN, false, 0}}, {{ConfLayout::PLN, false, 0}});
-        } catch (InferenceEngine::details::InferenceEngineException &ex) {
+            addConfig(layer, {{ConfLayout::PLN, false, 0, Precision::FP32}}, {{ConfLayout::PLN, false, 0, Precision::FP32}});
+        } catch (InferenceEngine::Exception &ex) {
             errorMsg = ex.what();
         }
     }
@@ -58,7 +57,7 @@ private:
     float bias = 1.0f;
 };
 
-REG_FACTORY_FOR(ImplFactory<GRNImpl>, GRN);
+REG_FACTORY_FOR(GRNImpl, GRN);
 
 }  // namespace Cpu
 }  // namespace Extensions

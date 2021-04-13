@@ -72,6 +72,7 @@ gtest-parallel ./MemCheckTests
 ``` bash
 gtest-parallel ./StressMemLeaksTests
 ```
+
 MemCheckTests logs can be used to gather reference values based on current
 memory consumption:
 

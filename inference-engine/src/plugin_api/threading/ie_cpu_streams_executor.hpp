@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2019 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -12,9 +12,7 @@
 #include <memory>
 #include <string>
 
-#include <threading/ie_istreams_executor.hpp>
-#include "ie_parallel.hpp"
-#include "ie_api.h"
+#include "threading/ie_istreams_executor.hpp"
 
 namespace InferenceEngine {
 /**
@@ -43,6 +41,8 @@ public:
     ~CPUStreamsExecutor() override;
 
     void run(Task task) override;
+
+    void Execute(Task task) override;
 
     int GetStreamId() override;
 

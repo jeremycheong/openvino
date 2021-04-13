@@ -1,21 +1,16 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
-
-#include <gtest/gtest.h>
-#include <gmock/gmock-spec-builders.h>
-#include "mkldnn_graph.h"
 
 #include "test_graph.hpp"
 
 #include "single_layer_common.hpp"
-#include <mkldnn_extension_utils.h>
-#include <cnn_network_impl.hpp>
 #include "ir_gen_helper.hpp"
 #include "tests_common.hpp"
 
-#include <cpp/ie_cnn_net_reader.h>
+#include <ie_core.hpp>
 #include <ie_plugin_config.hpp>
+#include <ie_system_conf.h>
 
 using namespace InferenceEngine;
 using namespace ::testing;
@@ -263,9 +258,6 @@ protected:
             deconv_test_params p = ::testing::WithParamInterface<deconv_test_params>::GetParam();
             std::string model = getModel(p);
 
-            InferenceEngine::CNNNetReader net_reader;
-            ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
-
             size_t blob_size = p.out_c * (p.dims[1] / p.grp_c);
             for (auto k : p.kernel) {
                 blob_size *= k;
@@ -294,10 +286,13 @@ protected:
                 memcpy(model_blob_ptr, blb->buffer().as<uint8_t*>(), blb->byteSize());
                 model_blob_ptr += blb->byteSize();
             }
-            net_reader.SetWeights(model_blob);
+            
+            InferenceEngine::Core core;
+            InferenceEngine::CNNNetwork network;
+            ASSERT_NO_THROW(network = core.ReadNetwork(model, model_blob));
 
             MKLDNNGraphTestClass graph;
-            graph.CreateGraph(net_reader.getNetwork());
+            graph.CreateGraph(network);
             auto& nodes = graph.getNodes();
             for (auto &node : nodes) {
                 if (node->getType() == MKLDNNPlugin::Deconvolution) {
@@ -330,7 +325,7 @@ protected:
             srcs.insert(std::pair<std::string, InferenceEngine::Blob::Ptr>("in1", src));
 
             InferenceEngine::OutputsDataMap out;
-            out = net_reader.getNetwork().getOutputsInfo();
+            out = network.getOutputsInfo();
             InferenceEngine::BlobMap outputBlobs;
 
             std::pair<std::string, InferenceEngine::DataPtr> item = *out.begin();
@@ -348,7 +343,7 @@ protected:
             ref_deconv(*srcPtr, weights, bias, dst_ref, p);
 
             compare(*output, dst_ref, 0.0002f);
-        } catch (const InferenceEngine::details::InferenceEngineException &e) {
+        } catch (const InferenceEngine::Exception &e) {
             FAIL() << e.what();
         }
     }
@@ -358,10 +353,14 @@ TEST_P(MKLDNNGraphDeconvolutionalTests, TestsDeconvolution) {}
 
 //  deconv_test_params(dims, kernel, strides, pads_begin, pads_end, out_c, grp_c, with_bias, auto_pad, num_prim_desc,
 //                     selectedTypes, preferTypes, comp)
+
+size_t  expected_num_prim_desc = InferenceEngine::with_cpu_x86_avx2() ? 3 : 2;
+
+
 INSTANTIATE_TEST_CASE_P(
     TestDeconvolution, MKLDNNGraphDeconvolutionalTests,
     ::testing::Values(
-        /*0*/   deconv_test_params{ {1, 3, 3, 3}, {3, 3}, {1, 1}, {0, 0}, {0, 0}, 2, 1, false, "", 2, {MKLDNNPlugin::impl_desc_type::jit} },
+        /*0*/   deconv_test_params{{1, 3, 3, 3}, {3, 3}, {1, 1}, {0, 0}, {0, 0}, 2, 1, false, "", 2, {MKLDNNPlugin::impl_desc_type::jit} },
                 deconv_test_params{{3, 3, 3, 3}, {4, 3}, {1, 1}, {0, 0}, {0, 0}, 2, 1, false, "", 2, {MKLDNNPlugin::impl_desc_type::jit} },
                 deconv_test_params{{2, 8, 5, 5}, {4, 4}, {2, 2}, {1, 1}, {0, 0}, 8, 8, false, "", 4, {MKLDNNPlugin::impl_desc_type::jit | MKLDNNPlugin::impl_desc_type::_dw}},
                 deconv_test_params{{2, 8, 5, 5}, {8, 8}, {4, 4}, {1, 1}, {0, 0}, 8, 8, false, "", 4, {MKLDNNPlugin::impl_desc_type::jit | MKLDNNPlugin::impl_desc_type::_dw}},
@@ -384,20 +383,28 @@ INSTANTIATE_TEST_CASE_P(
                                    {MKLDNNPlugin::impl_desc_type::ref_any}, {MKLDNNPlugin::impl_desc_type::ref_any}},
                 deconv_test_params{{1, 6, 6, 5}, {3, 1}, {1, 1}, {1, 0}, {1, 0}, 9, 3, true, "", 2,
                                    {MKLDNNPlugin::impl_desc_type::ref_any}, {MKLDNNPlugin::impl_desc_type::ref_any}},
-                deconv_test_params{{2, 24, 5, 5}, {4, 4}, {2, 2}, {1, 1}, {0, 0}, 24, 3, true, "", 4, {MKLDNNPlugin::impl_desc_type::jit}},
+                deconv_test_params{{2, 24, 5, 5}, {4, 4}, {2, 2}, {1, 1}, {0, 0}, 24, 3, true, "",
+                                   InferenceEngine::with_cpu_x86_avx2() ? 4ul : 3ul,
+                                   {MKLDNNPlugin::impl_desc_type::jit}},
         /*10*/  deconv_test_params{{2, 48, 5, 5}, {4, 4}, {2, 2}, {1, 1}, {0, 0}, 48, 3, true, "", 4, {MKLDNNPlugin::impl_desc_type::jit}},
                 deconv_test_params{{2, 48, 3, 3}, {4, 4}, {2, 2}, {1, 1}, {0, 0}, 192, 3, true, "", 4, {MKLDNNPlugin::impl_desc_type::jit}},
                 deconv_test_params{{2, 24, 5, 5}, {4, 4}, {2, 2}, {1, 1}, {0, 0}, 24, 1, true, "", 3, {MKLDNNPlugin::impl_desc_type::jit}},
-                deconv_test_params{{2, 72, 5, 5}, {4, 4}, {2, 2}, {1, 1}, {0, 0}, 72, 3, true, "", 4, {MKLDNNPlugin::impl_desc_type::jit}},
+                deconv_test_params{{2, 72, 5, 5}, {4, 4}, {2, 2}, {1, 1}, {0, 0}, 72, 3, true, "",
+                                   InferenceEngine::with_cpu_x86_avx2() ? 4ul : 3ul,
+                                   {MKLDNNPlugin::impl_desc_type::jit}},
                 deconv_test_params{{1, 12, 2, 2}, {4, 4}, {2, 2}, {1, 1}, {1, 1}, 12, 12, true, "", 4, {MKLDNNPlugin::impl_desc_type::jit}},
-                deconv_test_params{{1, 32, 5, 5}, {1, 1}, {1, 1}, {0, 0}, {0, 0}, 16, 1, true, "", 2, {MKLDNNPlugin::impl_desc_type::jit}},
+// In case of SSE oor pure AVX there is no JIT implementation
+//                deconv_test_params{{1, 32, 5, 5}, {1, 1}, {1, 1}, {0, 0}, {0, 0}, 16, 1, true, "",
+//                                   2, {MKLDNNPlugin::impl_desc_type::jit}},
                 deconv_test_params{{1, 48, 3, 3}, {1, 1}, {1, 1}, {0, 0}, {0, 0}, 96, 3, true, "", 2, {MKLDNNPlugin::impl_desc_type::jit}},
         // 5D
-        /*17*/  deconv_test_params{{1, 2, 8, 5, 5}, {3, 3, 3}, {1, 1, 1}, {0, 0, 0}, {0, 0, 0}, 4, 1, true, "", 4,
+                deconv_test_params{{1, 2, 8, 5, 5}, {3, 3, 3}, {1, 1, 1}, {0, 0, 0}, {0, 0, 0}, 4, 1, true, "", 4,
                                    {MKLDNNPlugin::impl_desc_type::ref_any}, {MKLDNNPlugin::impl_desc_type::ref_any} },
                 deconv_test_params{{1, 6, 5, 5, 5}, {3, 3, 3}, {1, 1, 1}, {0, 0, 0}, {0, 0, 0}, 9, 3, true, "", 2,
                                    {MKLDNNPlugin::impl_desc_type::ref_any}, {MKLDNNPlugin::impl_desc_type::ref_any} },
-                deconv_test_params{{2, 24, 5, 5, 5}, {4, 4, 4}, {2, 2, 1}, {1, 1, 1}, {0, 0, 0}, 24, 3, true, "", 4, {MKLDNNPlugin::impl_desc_type::jit}},
+                deconv_test_params{{2, 24, 5, 5, 5}, {4, 4, 4}, {2, 2, 1}, {1, 1, 1}, {0, 0, 0}, 24, 3, true, "",
+                                   InferenceEngine::with_cpu_x86_avx2() ? 4ul : 3ul,
+                                   {MKLDNNPlugin::impl_desc_type::jit}},
                 deconv_test_params{{2, 48, 5, 5, 5}, {4, 4, 4}, {2, 2, 1}, {1, 1, 1}, {0, 0, 0}, 48, 3, true, "", 4, {MKLDNNPlugin::impl_desc_type::jit}}
         // Blocked, with biases
         // TODO support on jit
@@ -445,9 +452,6 @@ protected:
             size_t MB = p.dims[0];
             if (MB < 2)
                 MB = 2;
-
-            InferenceEngine::CNNNetReader net_reader;
-            ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
             
             size_t blob_size = 1;
             for (auto k : p.kernel) {
@@ -477,11 +481,13 @@ protected:
                 memcpy(model_blob_ptr, blb->buffer().as<uint8_t*>(), blb->byteSize());
                 model_blob_ptr += blb->byteSize();
             }
-            net_reader.SetWeights(model_blob);
 
-            InferenceEngine::CNNNetwork network = net_reader.getNetwork();
-            auto implNet = dynamic_cast<InferenceEngine::details::CNNNetworkImpl *>(&((InferenceEngine::ICNNNetwork&)network));
-            ASSERT_NE(nullptr, implNet) << "Failed to cast ICNNNetwork to CNNNetworkImpl";
+            InferenceEngine::Core core;
+            InferenceEngine::CNNNetwork network;
+            ASSERT_NO_THROW(network = core.ReadNetwork(model, model_blob));
+
+            ASSERT_EQ(nullptr, network.getFunction());
+            auto implNet = static_cast<InferenceEngine::details::CNNNetworkImpl *>(&((InferenceEngine::ICNNNetwork&)network));
             InferenceEngine::ResponseDesc resp;
             InferenceEngine::StatusCode sts  = implNet->setBatchSizeReshape(MB, &resp);
             ASSERT_EQ((int)InferenceEngine::StatusCode::OK, sts) << resp.msg;
@@ -489,7 +495,7 @@ protected:
 
             MKLDNNGraphTestClass graph;
             graph.setProperty({{InferenceEngine::PluginConfigParams::KEY_DYN_BATCH_ENABLED, InferenceEngine::PluginConfigParams::YES}});
-            graph.CreateGraph(net_reader.getNetwork());
+            graph.CreateGraph(network);
 
             InferenceEngine::Blob::Ptr src = InferenceEngine::make_shared_blob<float>(
                     {InferenceEngine::Precision::FP32, p.dims, InferenceEngine::TensorDesc::getLayoutByDims(p.dims)});
@@ -504,7 +510,7 @@ protected:
             srcs.insert(std::pair<std::string, InferenceEngine::Blob::Ptr>("in1", src));
 
             InferenceEngine::OutputsDataMap out;
-            out = net_reader.getNetwork().getOutputsInfo();
+            out = network.getOutputsInfo();
             InferenceEngine::BlobMap outputBlobs;
 
             std::pair<std::string, InferenceEngine::DataPtr> item = *out.begin();
@@ -520,7 +526,7 @@ protected:
 
             graph.checkDynBatch(srcs, outputBlobs, MB, MB, checkDeconvolution, MKLDNNGraphTestClass::CheckDynBatchType::Child);
             graph.checkDynBatch(srcs, outputBlobs, 1, MB, checkDeconvolution, MKLDNNGraphTestClass::CheckDynBatchType::Child);
-        } catch (const InferenceEngine::details::InferenceEngineException &e) {
+        } catch (const InferenceEngine::Exception &e) {
             FAIL() << e.what();
         }
     }
@@ -531,7 +537,8 @@ TEST_P(MKLDNNGraphDynBatchDeconvolutionalTests, TestsDynBatchDeconvolutional) {}
 INSTANTIATE_TEST_CASE_P(
         TestsDynBatchDeconvolutional, MKLDNNGraphDynBatchDeconvolutionalTests,
         ::testing::Values(
-                deconv_test_params{{1, 3, 3, 3}, {3, 3}, {1, 1}, {0, 0}, {0, 0}, 2, 1, false, "", 5, {MKLDNNPlugin::impl_desc_type::jit} },
+                // TODO: rewrite to ngraph to have reshape functionality
+                // deconv_test_params{{1, 3, 3, 3}, {3, 3}, {1, 1}, {0, 0}, {0, 0}, 2, 1, false, "", 5, {MKLDNNPlugin::impl_desc_type::jit} },
                 deconv_test_params{{3, 3, 3, 3}, {4, 3}, {1, 1}, {0, 0}, {0, 0}, 2, 1, false, "", 5, {MKLDNNPlugin::impl_desc_type::jit} },
                 deconv_test_params{ {2, 8, 5, 5}, {4, 4}, {2, 2}, {1, 1}, {0, 0}, 8, 8, false, "", 4, {MKLDNNPlugin::impl_desc_type::jit | MKLDNNPlugin::impl_desc_type::_dw} },
                 deconv_test_params{ {2, 8, 5, 5}, {8, 8}, {4, 4}, {1, 1}, {0, 0}, 8, 8, false, "", 4, {MKLDNNPlugin::impl_desc_type::jit | MKLDNNPlugin::impl_desc_type::_dw} },

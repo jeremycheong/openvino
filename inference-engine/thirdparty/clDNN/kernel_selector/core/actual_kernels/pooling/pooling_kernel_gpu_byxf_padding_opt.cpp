@@ -1,17 +1,6 @@
-// Copyright (c) 2018 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 
 #include "pooling_kernel_gpu_byxf_padding_opt.h"
 
@@ -22,6 +11,8 @@ ParamsKey PoolingKernelGPUByxfPaddingOpt::GetSupportedKey() const {
     k.EnableInputDataType(Datatype::F32);
     k.EnableOutputDataType(Datatype::F16);
     k.EnableOutputDataType(Datatype::F32);
+    k.EnableOutputDataType(Datatype::UINT8);
+    k.EnableOutputDataType(Datatype::INT8);
     k.EnableInputLayout(DataLayout::byxf);
     k.EnableOutputLayout(DataLayout::byxf);
     k.EnableTensorOffset();
@@ -32,23 +23,31 @@ ParamsKey PoolingKernelGPUByxfPaddingOpt::GetSupportedKey() const {
     k.EnablePoolRemainder(PoolRemainder::FLOOR);
     k.EnablePoolRemainder(PoolRemainder::CEIL);
     k.EnablePoolKernelDividerMode(KernelDividerMode::FIXED);
+    k.EnableDifferentTypes();
     return k;
 }
 
 PoolingKernelBase::DispatchData PoolingKernelGPUByxfPaddingOpt::SetDefault(const pooling_params& params) const {
     const auto& output = params.output;
 
-    DispatchData runInfo = PoolingKernelBase::SetDefault(params);
+    DispatchData dispatchData = PoolingKernelBase::SetDefault(params);
 
-    runInfo.gws2 = output.Batch().v * (CeilDiv(output.Feature().v, 8));
+    dispatchData.gws[2] = output.Batch().v * (CeilDiv(output.Feature().v, 8));
 
-    return runInfo;
+    return dispatchData;
 }
 
-JitConstants PoolingKernelGPUByxfPaddingOpt::GetJitConstants(const pooling_params& params, DispatchData kd) const {
-    auto mem_consts = PoolingKernelBase::GetJitConstants(params, kd);
+JitConstants PoolingKernelGPUByxfPaddingOpt::GetJitConstants(const pooling_params& params, DispatchData dispatchData) const {
+    auto jit = PoolingKernelBase::GetJitConstants(params, dispatchData);
+    jit.Merge(MakeTypeJitConstants(GetActivationType(params), "ACTIVATION"));
+    jit.Merge(MakeTypeJitConstants(GetAccumulatorType(params), "ACCUMULATOR"));
 
-    return mem_consts;
+    if (!params.fused_ops.empty()) {
+        auto input_dt = GetActivationType(params);
+        FusedOpsConfiguration conf = {"", {"b", "f + i", "y", "x"}, "pool_result", input_dt, 1};
+        jit.Merge(MakeFusedOpsJitConstants(params, {conf}));
+    }
+    return jit;
 }
 
 bool PoolingKernelGPUByxfPaddingOpt::Validate(const Params& p, const optional_params& o) const {
@@ -64,6 +63,10 @@ bool PoolingKernelGPUByxfPaddingOpt::Validate(const Params& p, const optional_pa
 }
 
 KernelsData PoolingKernelGPUByxfPaddingOpt::GetKernelsData(const Params& params, const optional_params& options) const {
-    return GetCommonKernelsData(params, options, FORCE_PRIORITY_8);
+    return GetCommonKernelsData(params, options);
+}
+
+KernelsPriority PoolingKernelGPUByxfPaddingOpt::GetKernelsPriority(const Params& /*params*/, const optional_params& /*options*/) const {
+    return FORCE_PRIORITY_8;
 }
 }  // namespace kernel_selector

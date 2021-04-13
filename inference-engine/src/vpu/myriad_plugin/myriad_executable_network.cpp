@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -6,25 +6,29 @@
 #include <utility>
 
 #include <ie_metric_helpers.hpp>
-#include "cnn_network_impl.hpp"
+#include <legacy/cnn_network_impl.hpp>
 #include "exec_graph_info.hpp"
 #include <myriad_executable_network.h>
 #include <vpu/blob_reader.hpp>
 #include <vpu/utils/profiling.hpp>
 #include <vpu/utils/runtime_graph.hpp>
-#include <details/ie_cnn_network_tools.h>
-#include <net_pass.h>
+#include <legacy/net_pass.h>
 #include <vpu/compile_env.hpp>
 
 using namespace InferenceEngine;
+
+static const char importedNetworkName[] = "__importedExecutableNetworkFromBlobName";
 
 namespace vpu {
 namespace MyriadPlugin {
 
 ExecutableNetwork::ExecutableNetwork(
+        std::shared_ptr<IMvnc> mvnc,
         std::vector<DevicePtr>& devicePool,
-        const MyriadConfig& config) :
-            _config(config) {
+        const MyriadConfig& config,
+        const ie::ICore* core) :
+            _config(config),
+            _core(core) {
     VPU_PROFILE(ExecutableNetwork);
 
     _log = std::make_shared<Logger>(
@@ -32,7 +36,7 @@ ExecutableNetwork::ExecutableNetwork(
         _config.logLevel(),
         defaultOutput(_config.pluginLogFilePath()));
 
-    _executor = std::make_shared<MyriadExecutor>(_config.forceReset(), _config.logLevel(), _log);
+    _executor = std::make_shared<MyriadExecutor>(_config.forceReset(), std::move(mvnc), _config.logLevel(), _log);
     _device = _executor->openDevice(devicePool, _config);
 
     const auto& compileConfig = config.compileConfig();
@@ -49,9 +53,12 @@ ExecutableNetwork::ExecutableNetwork(
 }
 
 ExecutableNetwork::ExecutableNetwork(
-        ICNNNetwork& network, std::vector<DevicePtr>& devicePool,
-        const MyriadConfig& config) :
-            ExecutableNetwork(devicePool, config) {
+        const ie::CNNNetwork& network,
+        std::shared_ptr<IMvnc> mvnc,
+        std::vector<DevicePtr>& devicePool,
+        const MyriadConfig& config,
+        const ie::ICore* core) :
+            ExecutableNetwork(std::move(mvnc), devicePool, config, core) {
     VPU_PROFILE(ExecutableNetwork);
 
     const auto compilerLog = std::make_shared<Logger>(
@@ -60,12 +67,13 @@ ExecutableNetwork::ExecutableNetwork(
         defaultOutput(_config.compilerLogFilePath()));
 
     if (_device == nullptr)
-        THROW_IE_EXCEPTION << "No device was detected";
+        IE_THROW() << "No device was detected";
     auto compiledGraph = compileNetwork(
         network,
         static_cast<Platform>(_device->_platform),
         _config.compileConfig(),
-        compilerLog);
+        compilerLog,
+        _core);
 
     _actualNumExecutors = compiledGraph->numExecutors;
     _graphBlob = std::move(compiledGraph->blob);
@@ -78,7 +86,7 @@ ExecutableNetwork::ExecutableNetwork(
         return;
     }
 
-    auto networkName = network.getName();
+    const auto& networkName = network.getName();
     _executor->allocateGraph(_device, _graphDesc, _graphBlob, compiledGraph->blobHeader, compiledGraph->numActiveStages, networkName, _actualNumExecutors);
     if (_config.exclusiveAsyncRequests()) {
         ExecutorManager *executorManager = ExecutorManager::getInstance();
@@ -106,8 +114,7 @@ void ExecutableNetwork::Import(std::istream& strm,
         return;
     }
 
-    // TODO: better name
-    char networkName[1024] = "importedNetwork";
+    std::string networkName = importedNetworkName;
 
     BlobReader blobReader;
     blobReader.parse(_graphBlob);
@@ -141,42 +148,50 @@ void ExecutableNetwork::Import(std::istream& strm,
 }
 
 ExecutableNetwork::ExecutableNetwork(std::istream& strm,
+                               std::shared_ptr<IMvnc> mvnc,
                                std::vector<DevicePtr> &devicePool,
-                               const MyriadConfig& config) :
-    ExecutableNetwork(devicePool, config) {
+                               const MyriadConfig& config,
+                               const ie::ICore* core) :
+    ExecutableNetwork(std::move(mvnc), devicePool, config, core) {
     VPU_PROFILE(ExecutableNetwork);
     Import(strm, devicePool, config);
 }
 
 ExecutableNetwork::ExecutableNetwork(
         const std::string& blobFilename,
+        std::shared_ptr<IMvnc> mvnc,
         std::vector<DevicePtr>& devicePool,
-        const MyriadConfig& config) :
-    ExecutableNetwork(devicePool, config) {
+        const MyriadConfig& config,
+        const ie::ICore* core) :
+    ExecutableNetwork(std::move(mvnc), devicePool, config, core) {
     VPU_PROFILE(ExecutableNetwork);
     std::ifstream blobFile{blobFilename, std::ios::binary};
     Import(blobFile, devicePool, config);
 }
 
-void ExecutableNetwork::GetMetric(const std::string &name, Parameter &result, ResponseDesc *resp) const {
+InferenceEngine::Parameter ExecutableNetwork::GetMetric(const std::string &name) const {
     if (name == METRIC_KEY(NETWORK_NAME)) {
-        result = IE_SET_METRIC(NETWORK_NAME, _graphDesc._name);
+        IE_SET_METRIC_RETURN(NETWORK_NAME, _graphDesc._name);
     } else if (name == METRIC_KEY(SUPPORTED_METRICS)) {
-        result = IE_SET_METRIC(SUPPORTED_METRICS, _supportedMetrics);
+        IE_SET_METRIC_RETURN(SUPPORTED_METRICS, _supportedMetrics);
     } else if (name == METRIC_KEY(SUPPORTED_CONFIG_KEYS)) {
-        result = IE_SET_METRIC(SUPPORTED_CONFIG_KEYS, std::vector<std::string>());
+        IE_SET_METRIC_RETURN(SUPPORTED_CONFIG_KEYS, std::vector<std::string>());
     } else if (name == METRIC_KEY(OPTIMAL_NUMBER_OF_INFER_REQUESTS)) {
-        result = IE_SET_METRIC(OPTIMAL_NUMBER_OF_INFER_REQUESTS, static_cast<unsigned int>(2u * _actualNumExecutors));
+        IE_SET_METRIC_RETURN(OPTIMAL_NUMBER_OF_INFER_REQUESTS, static_cast<unsigned int>(2u * _actualNumExecutors));
     } else if (name == METRIC_KEY(DEVICE_THERMAL)) {
-        result = IE_SET_METRIC(DEVICE_THERMAL, _executor->GetThermal(_device));
+        IE_SET_METRIC_RETURN(DEVICE_THERMAL, _executor->GetThermal(_device));
     } else {
-        THROW_IE_EXCEPTION << NOT_IMPLEMENTED_str;
+        IE_THROW(NotImplemented);
     }
 }
 
-void ExecutableNetwork::GetExecGraphInfo(InferenceEngine::ICNNNetwork::Ptr &graphPtr) {
+InferenceEngine::CNNNetwork ExecutableNetwork::GetExecGraphInfo() {
     auto perfInfo = _executor->getPerfTimeInfo(_graphDesc._graphHandle);
-    graphPtr = buildRuntimeGraph(_graphMetaData, perfInfo);
+    if (_graphDesc._name == importedNetworkName)
+        IE_THROW() <<
+        "GetExecGraphInfo() can't be called for ExecutableNetwork that was imported from a compiled blob as far getting"
+        " original stage names, types, and topological order from the compiled blob is not implemented for now.";
+    return buildRuntimeGraph(_graphMetaData, perfInfo);
 }
 
 }  // namespace MyriadPlugin

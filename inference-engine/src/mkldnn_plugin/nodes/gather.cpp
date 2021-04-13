@@ -1,8 +1,7 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "list.hpp"
 #include "base.hpp"
 
 #include <cmath>
@@ -12,7 +11,7 @@
 #include <algorithm>
 #include <limits>
 #include "ie_parallel.hpp"
-#include "common/simple_copy.h"
+#include "common/cpu_memcpy.h"
 #include "common/fp16_utils.h"
 
 namespace InferenceEngine {
@@ -24,17 +23,17 @@ public:
     explicit GatherImpl(const CNNLayer* layer) {
         try {
             if (layer->insData.size() != 2 || layer->outData.empty())
-                THROW_IE_EXCEPTION << layer->name << " Incorrect number of input/output edges!";
+                IE_THROW() << layer->name << " Incorrect number of input/output edges!";
 
             Precision inIdxPrecision = layer->insData[GATHER_INDEXES].lock()->getTensorDesc().getPrecision();
             if (inIdxPrecision != Precision::FP32 && inIdxPrecision != Precision::I32 && inIdxPrecision != Precision::FP16)
-                THROW_IE_EXCEPTION << layer->name << " Incorrect input precision. Only FP32, FP16 or I32 are supported!";
+                inIdxPrecision = Precision::I32;
 
             axis = layer->GetParamAsInt("axis");
 
             const SizeVector& dictionary_dims = layer->insData[GATHER_DICTIONARY].lock()->getTensorDesc().getDims();
             if (dictionary_dims.size() == 0)
-                THROW_IE_EXCEPTION << layer->name << " Incorrect input parameters dimension!";
+                IE_THROW() << layer->name << " Incorrect input parameters dimension!";
             // Dictionary must be at least rank axis + 1
             IE_ASSERT(-static_cast<int>(dictionary_dims.size()) <= axis && axis < static_cast<int>(dictionary_dims.size()))
                 << layer->name << " Incorrect input parameters dimensions and axis number!";
@@ -49,11 +48,11 @@ public:
                 dataLength *= dictionary_dims[i];
 
             if (dataLength == 0)
-                THROW_IE_EXCEPTION << layer->name << " Incorrect input parameters dimension!";
+                IE_THROW() << layer->name << " Incorrect input parameters dimension!";
 
             LayerConfig config;
             DataConfig dataConfigIdx, dataConfigDct;
-            Precision dataPrecision = layer->outData[0]->getTensorDesc().getPrecision();
+            Precision dataPrecision = layer->insData[GATHER_DICTIONARY].lock()->getTensorDesc().getPrecision();
             dataConfigDct.desc = TensorDesc(dataPrecision, dictionary_dims,
                     layer->insData[GATHER_DICTIONARY].lock()->getTensorDesc().getLayoutByDims(dictionary_dims));
             config.inConfs.push_back(dataConfigDct);
@@ -69,7 +68,7 @@ public:
             config.outConfs.push_back(dataConfigOut);
             config.dynBatchSupport = false;
             confs.push_back(config);
-        } catch (InferenceEngine::details::InferenceEngineException &ex) {
+        } catch (InferenceEngine::Exception &ex) {
             errorMsg = ex.what();
         }
     }
@@ -126,7 +125,7 @@ private:
             if (idx < indexRange) {
                 //  Copying data to destination from Dictionary
                 for (size_t j = 0; j < numDictionaries; j++) {
-                    simple_copy(&dst_data[len * (i + j * src_indexSize)],
+                    cpu_memcpy_s(&dst_data[len * (i + j * src_indexSize)],
                                 output->byteSize() - (len * (i + j * src_indexSize)),
                                 &src_dataDict[len * (idx + j * indexRange)],
                                 len);
@@ -148,7 +147,7 @@ private:
 };
 
 
-REG_FACTORY_FOR(ImplFactory<GatherImpl>, Gather);
+REG_FACTORY_FOR(GatherImpl, Gather);
 
 }  // namespace Cpu
 }  // namespace Extensions

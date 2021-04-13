@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -20,20 +20,14 @@
 #include "ie_imemory_state.hpp"
 #include "ie_input_info.hpp"
 #include "ie_parameter.hpp"
-#include "ie_primitive_info.hpp"
 #include "ie_remote_context.hpp"
 
 namespace InferenceEngine {
-
-/**
- * @brief A collection that contains string as key, and const Data smart pointer as value
- */
-using ConstOutputsDataMap = std::map<std::string, CDataPtr>;
-
 /**
  * @brief This is an interface of an executable network
  */
-class IExecutableNetwork : public details::IRelease {
+class INFERENCE_ENGINE_DEPRECATED("Use InferenceEngine::ExecutableNetwork instead") IExecutableNetwork
+    : public std::enable_shared_from_this<IExecutableNetwork> {
 public:
     /**
      * @brief A smart pointer to the current IExecutableNetwork object
@@ -43,11 +37,11 @@ public:
     /**
      * @brief Gets the Executable network output Data node information.
      *
-     * The received info is stored in the given ::ConstOutputsDataMap node.
-     * This method need to be called to find output names for using them later during filling of a map
-     * of blobs passed to InferenceEngine::IInferencePlugin::Infer()
+     * The received info is stored in the given InferenceEngine::ConstOutputsDataMap node.
+     * This method need to be called to find output names for using them later
+     * when calling InferenceEngine::InferRequest::GetBlob or InferenceEngine::InferRequest::SetBlob
      *
-     * @param out Reference to the ::ConstOutputsDataMap object
+     * @param out Reference to the InferenceEngine::ConstOutputsDataMap object
      * @param resp Optional: pointer to an already allocated object to contain information in case of failure
      * @return Status code of the operation: InferenceEngine::OK (0) for success
      */
@@ -56,11 +50,11 @@ public:
     /**
      * @brief Gets the executable network input Data node information.
      *
-     * The received info is stored in the given ::ConstInputsDataMap object.
-     * This method need to be called to find out input names for using them later during filling of a map
-     * of blobs passed to InferenceEngine::IInferencePlugin::Infer()
+     * The received info is stored in the given InferenceEngine::ConstInputsDataMap object.
+     * This method need to be called to find out input names for using them later
+     * when calling InferenceEngine::InferRequest::SetBlob
      *
-     * @param inputs Reference to ::ConstInputsDataMap object.
+     * @param inputs Reference to InferenceEngine::ConstInputsDataMap object.
      * @param resp Optional: pointer to an already allocated object to contain information in case of failure
      * @return Status code of the operation: InferenceEngine::OK (0) for success
      */
@@ -81,7 +75,6 @@ public:
      * @brief Exports the current executable network.
      *
      * @see Core::ImportNetwork
-     * @see IInferencePlugin::ImportNetwork
      *
      * @param modelFileName Full path to the location of the exported file
      * @param resp Optional: pointer to an already allocated object to contain information in case of failure
@@ -93,7 +86,6 @@ public:
      * @brief Exports the current executable network.
      *
      * @see Core::ImportNetwork
-     * @see IInferencePlugin::ImportNetwork
      *
      * @param networkModel Network model output stream
      * @param resp Optional: pointer to an already allocated object to contain information in case of failure
@@ -101,30 +93,22 @@ public:
      */
     virtual StatusCode Export(std::ostream& networkModel, ResponseDesc* resp) noexcept = 0;
 
+    IE_SUPPRESS_DEPRECATED_START
     /**
-     * @deprecated Use ExecutableNetwork::GetExecGraphInfo to get information about an internal graph
-     * @brief Get the mapping of IR layer names to implemented kernels
-     *
-     * @param deployedTopology Map of PrimitiveInfo objects that represent the deployed topology
-     * @param resp Optional: pointer to an already allocated object to contain information in case of failure
-     * @return Status code of the operation: InferenceEngine::OK (0) for success
-     */
-    IE_SUPPRESS_DEPRECATED_START_WIN
-    INFERENCE_ENGINE_DEPRECATED("Use ExecutableNetwork::GetExecGraphInfo to get information about an internal graph")
-    virtual StatusCode GetMappedTopology(std::map<std::string, std::vector<PrimitiveInfo::Ptr>>& deployedTopology,
-                                         ResponseDesc* resp) noexcept = 0;
-    IE_SUPPRESS_DEPRECATED_END_WIN
-
-    /**
+     * @deprecated Use InferenceEngine::ExecutableNetwork::GetExecGraphInfo instead
      * @brief Get executable graph information from a device
      *
      * @param graphPtr network ptr to store executable graph information
      * @param resp Optional: pointer to an already allocated object to contain information in case of failure
      * @return Status code of the operation: InferenceEngine::OK (0) for success
      */
+    // INFERENCE_ENGINE_DEPRECATED("Use InferenceEngine::ExecutableNetwork::GetExecGraphInfo instead")
     virtual StatusCode GetExecGraphInfo(ICNNNetwork::Ptr& graphPtr, ResponseDesc* resp) noexcept = 0;
+    IE_SUPPRESS_DEPRECATED_END
 
+    IE_SUPPRESS_DEPRECATED_START
     /**
+     * @deprecated Use InferRequest::QueryState instead
      * @brief Gets state control interface for given executable network.
      *
      * State control essential for recurrent networks
@@ -135,7 +119,9 @@ public:
      * @return Status code of the operation: InferenceEngine::OK (0) for success, OUT_OF_BOUNDS (-6) no memory state for
      * given index
      */
-    virtual StatusCode QueryState(IMemoryState::Ptr& pState, size_t idx, ResponseDesc* resp) noexcept = 0;
+    INFERENCE_ENGINE_DEPRECATED("Use InferRequest::QueryState instead")
+    virtual StatusCode QueryState(IVariableState::Ptr& pState, size_t idx, ResponseDesc* resp) noexcept = 0;
+    IE_SUPPRESS_DEPRECATED_END
 
     /**
      * @brief Sets configuration for current executable network
@@ -177,11 +163,14 @@ public:
     /**
      * @brief Gets shared context used to create an executable network.
      *
-     * @param pContext Refernce to a pointer that will receive resulting shared context object ptr
+     * @param pContext Reference to a pointer that will receive resulting shared context object ptr
      * @param resp Pointer to the response message that holds a description of an error if any occurred
      * @return code of the operation. InferenceEngine::OK if succeeded
      */
     virtual StatusCode GetContext(RemoteContext::Ptr& pContext, ResponseDesc* resp) const noexcept = 0;
+
+protected:
+    ~IExecutableNetwork() = default;
 };
 
 }  // namespace InferenceEngine

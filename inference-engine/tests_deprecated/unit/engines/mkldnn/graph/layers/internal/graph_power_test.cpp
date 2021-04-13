@@ -1,19 +1,13 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
-
-#include <gtest/gtest.h>
-#include <gmock/gmock-spec-builders.h>
-#include "mkldnn_graph.h"
 
 #include "test_graph.hpp"
 
 #include "single_layer_common.hpp"
-#include <mkldnn_extension_utils.h>
-#include <cnn_network_impl.hpp>
 #include "tests_common.hpp"
 
-#include <cpp/ie_cnn_net_reader.h>
+#include <ie_core.hpp>
 #include <ie_plugin_config.hpp>
 
 using namespace ::testing;
@@ -114,20 +108,20 @@ protected:
             power_test_params p = ::testing::WithParamInterface<power_test_params>::GetParam();
             std::string model = getModel(p);
 
-            InferenceEngine::CNNNetReader net_reader;
-            ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
+            InferenceEngine::Core core;
+            InferenceEngine::CNNNetwork network;
+            ASSERT_NO_THROW(network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr()));
 
             MKLDNNGraphTestClass graph;
-            graph.CreateGraph(net_reader.getNetwork());
+            graph.CreateGraph(network);
             auto& nodes = graph.getNodes();
             for (int i = 0; i < nodes.size(); i++) {
-                if (nodes[i]->getType() == MKLDNNPlugin::Power) {
+                if (nodes[i]->getType() == MKLDNNPlugin::Eltwise) {
                     ASSERT_EQ(p.num_prim_desc, nodes[i]->getSupportedPrimitiveDescriptors().size());
                     for (size_t j = 0; j < p.num_prim_desc && j < p.comp.size(); j++) {
                         p.comp.at(j)(nodes[i]->getSupportedPrimitiveDescriptors().at(j));
                     }
                     ASSERT_NE(nullptr, nodes[i]->getSelectedPrimitiveDescriptor());
-                    ASSERT_EQ(p.selectedType, nodes[i]->getSelectedPrimitiveDescriptor()->getImplementationType());
                 }
             }
 
@@ -146,7 +140,7 @@ protected:
             srcs.insert(std::pair<std::string, InferenceEngine::Blob::Ptr>("in1", src));
 
             InferenceEngine::OutputsDataMap out;
-            out = net_reader.getNetwork().getOutputsInfo();
+            out = network.getOutputsInfo();
             InferenceEngine::BlobMap outputBlobs;
 
             std::pair<std::string, InferenceEngine::DataPtr> item = *out.begin();
@@ -164,7 +158,7 @@ protected:
             ref_power(*srcPtr, dst_ref, p);
 
             compare(*output, dst_ref);
-        } catch (const InferenceEngine::details::InferenceEngineException &e) {
+        } catch (const InferenceEngine::Exception &e) {
             FAIL() << e.what();
         }
     }
@@ -179,25 +173,16 @@ INSTANTIATE_TEST_CASE_P(
                 power_test_params{
                         {1, 3, 13, 13}, 1, 2, 0.5f, 3, MKLDNNPlugin::impl_desc_type::unknown, {
                                 [](MKLDNNPlugin::PrimitiveDescInfo impl) {
-                                    ASSERT_EQ(MKLDNNPlugin::impl_desc_type::unknown, impl.getImplementationType());
                                     ASSERT_EQ(1, impl.getConfig().inConfs.size());
                                     ASSERT_EQ(1, impl.getConfig().outConfs.size());
-                                    ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().inConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().outConfs.at(0).desc.getLayout());
                                 },
                                 [](MKLDNNPlugin::PrimitiveDescInfo impl) {
-                                    ASSERT_EQ(MKLDNNPlugin::impl_desc_type::unknown, impl.getImplementationType());
                                     ASSERT_EQ(1, impl.getConfig().inConfs.size());
                                     ASSERT_EQ(1, impl.getConfig().outConfs.size());
-                                    ASSERT_EQ(InferenceEngine::Layout::BLOCKED, impl.getConfig().inConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::BLOCKED, impl.getConfig().outConfs.at(0).desc.getLayout());
                                 },
                                 [](MKLDNNPlugin::PrimitiveDescInfo impl) {
-                                    ASSERT_EQ(MKLDNNPlugin::impl_desc_type::unknown, impl.getImplementationType());
                                     ASSERT_EQ(1, impl.getConfig().inConfs.size());
                                     ASSERT_EQ(1, impl.getConfig().outConfs.size());
-                                    ASSERT_EQ(InferenceEngine::Layout::BLOCKED, impl.getConfig().inConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::BLOCKED, impl.getConfig().outConfs.at(0).desc.getLayout());
                                 }}},
                 power_test_params{{1, 1, 23, 23}, 3, 8, 2, 3 },
                 power_test_params{{1, 8, 23, 23}, 8, 2, 1, 3 },
@@ -271,18 +256,19 @@ protected:
             if (MB < 2)
                 MB = 2;
 
-            InferenceEngine::CNNNetReader net_reader;
-            ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
-            InferenceEngine::CNNNetwork network = net_reader.getNetwork();
-            auto implNet = dynamic_cast<InferenceEngine::details::CNNNetworkImpl *>(&((InferenceEngine::ICNNNetwork&)network));
-            ASSERT_NE(nullptr, implNet) << "Failed to cast ICNNNetwork to CNNNetworkImpl";
+            InferenceEngine::Core core;
+            InferenceEngine::CNNNetwork network;
+            ASSERT_NO_THROW(network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr()));
+
+            ASSERT_EQ(nullptr, network.getFunction());
+            auto implNet = static_cast<InferenceEngine::details::CNNNetworkImpl *>(&((InferenceEngine::ICNNNetwork&)network));
             InferenceEngine::ResponseDesc resp;
             InferenceEngine::StatusCode sts  = implNet->setBatchSizeReshape(MB, &resp);
             ASSERT_EQ((int)InferenceEngine::StatusCode::OK, sts) << resp.msg;
 
             MKLDNNGraphTestClass graph;
             graph.setProperty({{InferenceEngine::PluginConfigParams::KEY_DYN_BATCH_ENABLED, InferenceEngine::PluginConfigParams::YES}});
-            graph.CreateGraph(net_reader.getNetwork());
+            graph.CreateGraph(network);
 
             InferenceEngine::SizeVector dims_src = {MB, p.in.c, p.in.h, p.in.w};
 
@@ -299,7 +285,7 @@ protected:
             srcs.insert(std::pair<std::string, InferenceEngine::Blob::Ptr>("in1", src));
 
             InferenceEngine::OutputsDataMap out;
-            out = net_reader.getNetwork().getOutputsInfo();
+            out = network.getOutputsInfo();
             InferenceEngine::BlobMap outputBlobs;
 
             std::pair<std::string, InferenceEngine::DataPtr> item = *out.begin();
@@ -310,11 +296,11 @@ protected:
             outputBlobs[item.first] = output;
 
             auto checkPower = [](const MKLDNNPlugin::MKLDNNNodePtr& node) {
-                return node->getType() == MKLDNNPlugin::Power;
+                return node->getType() == MKLDNNPlugin::Eltwise;
             };
             graph.checkDynBatch(srcs, outputBlobs, MB, MB, checkPower);
             graph.checkDynBatch(srcs, outputBlobs, 1, MB, checkPower);
-        } catch (const InferenceEngine::details::InferenceEngineException &e) {
+        } catch (const InferenceEngine::Exception &e) {
             FAIL() << e.what();
         }
     }
@@ -322,31 +308,23 @@ protected:
 
 TEST_P(MKLDNNGraphDynBatchPowerTests, TestsDynBatchPower) {}
 
+// TODO: rewrite to ngraph to have reshape functionality
 INSTANTIATE_TEST_CASE_P(
-        TestsDynBatchPower, MKLDNNGraphDynBatchPowerTests,
+        DISABLED_TestsDynBatchPower, MKLDNNGraphDynBatchPowerTests,
         ::testing::Values(
                 power_test_params{
                         {1, 3, 13, 13}, 1, 2, 0.5f, 3, MKLDNNPlugin::impl_desc_type::unknown, {
                                 [](MKLDNNPlugin::PrimitiveDescInfo impl) {
-                                    ASSERT_EQ(MKLDNNPlugin::impl_desc_type::unknown, impl.getImplementationType());
                                     ASSERT_EQ(1, impl.getConfig().inConfs.size());
                                     ASSERT_EQ(1, impl.getConfig().outConfs.size());
-                                    ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().inConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::NCHW, impl.getConfig().outConfs.at(0).desc.getLayout());
                                 },
                                 [](MKLDNNPlugin::PrimitiveDescInfo impl) {
-                                    ASSERT_EQ(MKLDNNPlugin::impl_desc_type::unknown, impl.getImplementationType());
                                     ASSERT_EQ(1, impl.getConfig().inConfs.size());
                                     ASSERT_EQ(1, impl.getConfig().outConfs.size());
-                                    ASSERT_EQ(InferenceEngine::Layout::BLOCKED, impl.getConfig().inConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::BLOCKED, impl.getConfig().outConfs.at(0).desc.getLayout());
                                 },
                                 [](MKLDNNPlugin::PrimitiveDescInfo impl) {
-                                    ASSERT_EQ(MKLDNNPlugin::impl_desc_type::unknown, impl.getImplementationType());
                                     ASSERT_EQ(1, impl.getConfig().inConfs.size());
                                     ASSERT_EQ(1, impl.getConfig().outConfs.size());
-                                    ASSERT_EQ(InferenceEngine::Layout::BLOCKED, impl.getConfig().inConfs.at(0).desc.getLayout());
-                                    ASSERT_EQ(InferenceEngine::Layout::BLOCKED, impl.getConfig().outConfs.at(0).desc.getLayout());
                                 }}},
                 power_test_params{{1, 1, 23, 23}, 3, 8, 2, 3 },
                 power_test_params{{1, 8, 23, 23}, 8, 2, 1, 3 },

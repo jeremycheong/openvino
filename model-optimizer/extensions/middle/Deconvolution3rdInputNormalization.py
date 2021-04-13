@@ -1,18 +1,5 @@
-"""
- Copyright (C) 2018-2020 Intel Corporation
-
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
-      http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
-"""
+# Copyright (C) 2018-2021 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 
 from extensions.ops.gather import Gather
 from mo.front.common.partial_infer.utils import int64_array
@@ -24,7 +11,6 @@ from mo.ops.op import PermuteAttrs
 
 class Deconvolution3rdInputNormalization(MiddleReplacementPattern):
     enabled = True
-    graph_condition = [lambda graph: graph.graph['cmd_params'].generate_experimental_IR_V10]
     force_clean_up = True
 
     @staticmethod
@@ -47,9 +33,11 @@ class Deconvolution3rdInputNormalization(MiddleReplacementPattern):
 
             data_node = node.in_node(2)
 
-            const = Const(graph, {'value': permutation.perm, 'need_shape_inference': True}).create_node_with_data()
-            axis_const = Const(graph, {'value': int64_array(0)}).create_node_with_data()
-            gather = Gather(graph, {'name': node.name + '/ShapeGather',
+            name = node.soft_get('name', node.id) + '/ShapeGather'
+            const = Const(graph, {'value': permutation.perm, 'name': name + '/Const',
+                                  'need_shape_inference': True}).create_node_with_data()
+            axis_const = Const(graph, {'value': int64_array(0), 'name': name + '/Axis'}).create_node_with_data()
+            gather = Gather(graph, {'name': name,
                                     'need_shape_inference': True}).create_node_with_data([data_node, const, axis_const])
             attrs = graph.get_edge_data(data_node.id, node.id, key=0).copy()
 

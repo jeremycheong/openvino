@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2019 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -10,11 +10,11 @@
 #pragma once
 
 #include <memory>
-#include "threading/ie_itask_executor.hpp"
-#include "ie_api.h"
-#include "ie_parameter.hpp"
 #include <vector>
 #include <string>
+
+#include "ie_parameter.hpp"
+#include "threading/ie_itask_executor.hpp"
 
 namespace InferenceEngine {
 
@@ -67,6 +67,14 @@ public:
         * @return configuration value wrapped into Parameter
         */
         Parameter GetConfig(const std::string& key);
+
+        /**
+        * @brief Create appropriate multithreaded configuration
+        *        filing unconfigured values from initial configuration using hardware properties
+        * @param initial Inital configuration
+        * @return configured values
+        */
+        static Config MakeDefaultMultiThreaded(const Config& initial);
 
         std::string        _name;  //!< Used by `ITT` to name executor threads
         int                _streams                 = 1;  //!< Number of streams.
@@ -121,6 +129,12 @@ public:
     * @return `ID` of current NUMA Node, or throws exceptions if called not from stream thread
     */
     virtual int  GetNumaNodeId() = 0;
+
+    /**
+    * @brief Execute the task in the current thread using streams executor configuration and constraints
+    * @param task A task to start
+    */
+    virtual void Execute(Task task) = 0;
 };
 
 

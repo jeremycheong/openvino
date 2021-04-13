@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -13,7 +13,6 @@
 #include <map>
 
 #include <cpp_interfaces/exception2status.hpp>
-#include <details/caseless.hpp>
 #include <ie_plugin_config.hpp>
 
 namespace vpu {
@@ -42,8 +41,7 @@ void ParsedConfigBase::update(
         const bool isDeprecatedOption = deprecatedOptions.count(entry.first) != 0;
 
         if (!isCompileOption && !isRunTimeOption) {
-            THROW_IE_EXCEPTION
-                    << NOT_FOUND_str << entry.first
+            IE_THROW(NotFound) << entry.first
                     << " key is not supported for VPU";
         }
 
@@ -86,9 +84,9 @@ IE_SUPPRESS_DEPRECATED_END
 
 const std::unordered_set<std::string>& ParsedConfigBase::getDeprecatedOptions() const {
     IE_SUPPRESS_DEPRECATED_START
-        static const std::unordered_set<std::string> options = {
-            VPU_CONFIG_KEY(LOG_LEVEL)
-        };
+    static const std::unordered_set<std::string> options = {
+        VPU_CONFIG_KEY(LOG_LEVEL)
+    };
     IE_SUPPRESS_DEPRECATED_END
 
     return options;

@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -6,7 +6,6 @@
 
 #include <map>
 
-#include "ie_plugin.hpp"
 #include "ie_iexecutable_network.hpp"
 #include <gmock/gmock.h>
 #include <string>
@@ -15,13 +14,10 @@
 
 using namespace InferenceEngine;
 
-IE_SUPPRESS_DEPRECATED_START
 class MockExecutableNetworkThreadSafeAsyncOnly : public ExecutableNetworkThreadSafeAsyncOnly {
 public:
     MOCK_METHOD2(CreateAsyncInferRequestImpl,
                  AsyncInferRequestInternal::Ptr(InputsDataMap networkInputs, OutputsDataMap networkOutputs));
     MOCK_METHOD1(Export, void(const std::string &));
     void Export(std::ostream&) override {}
-    MOCK_METHOD1(GetMappedTopology, void(std::map<std::string, std::vector<PrimitiveInfo::Ptr>> &));
 };
-IE_SUPPRESS_DEPRECATED_END

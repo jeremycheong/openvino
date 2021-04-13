@@ -1,16 +1,13 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
-
-#include "common_test_utils/data_utils.hpp"
-#include "mkldnn_graph.h"
 #include "test_graph.hpp"
+#include "common_test_utils/data_utils.hpp"
 
 #include "single_layer_common.hpp"
-#include <mkldnn_extension_utils.h>
 #include "tests_common.hpp"
-#include <cpp/ie_cnn_net_reader.h>
+#include <ie_core.hpp>
 
 
 using namespace ::testing;
@@ -130,7 +127,7 @@ void ref_math(
         for (i = 0; i < dst_size; i++) {
             dst_data[i] = sinhf(src_data[i]);
         }
-    } else if (math_function == "Softplus") {
+    } else if (math_function == "SoftPlus") {
         for (i = 0; i < dst_size; i++) {
             dst_data[i] = logf(expf(src_data[i]) + 1);
         }
@@ -225,11 +222,12 @@ protected:
             math_test_params p = ::testing::WithParamInterface<math_test_params>::GetParam();
             std::string model = getModel(p);
 
-            InferenceEngine::CNNNetReader net_reader;
-            ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
+            InferenceEngine::Core core;
+            InferenceEngine::CNNNetwork network;
+            ASSERT_NO_THROW(network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr()));
 
             MKLDNNGraphTestClass graph;
-            graph.CreateGraph(net_reader.getNetwork());
+            graph.CreateGraph(network);
 
             // Input Data
             InferenceEngine::Blob::Ptr srcData = InferenceEngine::make_shared_blob<float>({ InferenceEngine::Precision::FP32, p.in_out, InferenceEngine::TensorDesc::getLayoutByDims(p.in_out) });
@@ -248,7 +246,7 @@ protected:
 
             // Output Data
             InferenceEngine::OutputsDataMap out;
-            out = net_reader.getNetwork().getOutputsInfo();
+            out = network.getOutputsInfo();
             InferenceEngine::BlobMap outputBlobs;
 
             std::pair<std::string, InferenceEngine::DataPtr> item = *out.begin();
@@ -277,7 +275,7 @@ protected:
             graph.Infer(srcs, outputBlobs);
             float threshold = p.math_function == "Erf" ? 0.0001f : 0.00001f;
             compare(*output, dst_ref, threshold);
-        } catch (const InferenceEngine::details::InferenceEngineException &e) {
+        } catch (const InferenceEngine::Exception &e) {
             FAIL() << e.what();
         }
     }
@@ -315,7 +313,7 @@ INSTANTIATE_TEST_CASE_P(
                 math_test_params{ "Sign",{ 3 },{ -0.5f, 0.f, 0.5f },{},{},{},{-1, 0, 1} },
                 math_test_params{ "Sin",{ 3 },{ -1, 0, 1 },{},{},{},{ -0.841470957f, 0.0f, 0.841470957f } },
                 math_test_params{ "Sinh",{ 3 },{ -0.5f, 0.f, 0.5f },{},{},{},{ } },
-                math_test_params{ "Softplus",{ 3 },{ -1, 0, 1 },{},{},{},{ 0.31326166f, 0.69314718f, 1.31326163f } },
+                math_test_params{ "SoftPlus",{ 3 },{ -1, 0, 1 },{},{},{},{ 0.31326166f, 0.69314718f, 1.31326163f } },
                 math_test_params{ "Softsign",{ 3 },{ -1, 0, 1 },{},{},{},{ -0.5f, 0.f, 0.5f } },
                 math_test_params{ "Tan",{ 3 },{ -1, 0, 1 },{},{},{},{ -1.55740774f, 0.0f, 1.55740774f } }
             ));

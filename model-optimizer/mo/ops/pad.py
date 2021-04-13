@@ -1,18 +1,6 @@
-"""
- Copyright (C) 2018-2020 Intel Corporation
+# Copyright (C) 2018-2021 Intel Corporation
+# SPDX-License-Identifier: Apache-2.0
 
- Licensed under the Apache License, Version 2.0 (the "License");
- you may not use this file except in compliance with the License.
- You may obtain a copy of the License at
-
-      http://www.apache.org/licenses/LICENSE-2.0
-
- Unless required by applicable law or agreed to in writing, software
- distributed under the License is distributed on an "AS IS" BASIS,
- WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- See the License for the specific language governing permissions and
- limitations under the License.
-"""
 import numpy as np
 
 from mo.graph.graph import Graph
@@ -37,26 +25,23 @@ class Pad(Op):
         super().__init__(graph, {
             'op': self.op,
             'type': self.op,
-            'infer': __class__.infer,
+
+            'version': 'opset1',
+            'infer': self.infer,
+
+            'mode': 'constant',
+
+            'force_precision_in_ports': {
+                1: 'int64',
+                2: 'int64',
+            },
+
             'in_ports_count': 4,
             'out_ports_count': 1,
-            'mode': 'constant',
-            'fill_value': float(0),
-            'force_precision_in_ports': {
-                1: 'int64' if graph.graph['cmd_params'].generate_experimental_IR_V10 else 'int32',
-                2: 'int64' if graph.graph['cmd_params'].generate_experimental_IR_V10 else 'int32',
-            },
         }, attrs)
 
-    def supported_attrs(self):
-        return ['mode', 'fill_value', 'pads']
-
     def backend_attrs(self):
-        return [('pad_mode', 'mode'),
-                ('pad_value', 'fill_value'),
-                ('pads_begin', lambda node: ','.join(map(str, node.pads[:, 0])) if node.has_valid('pads') else None),
-                ('pads_end', lambda node: ','.join(map(str, node.pads[:, 1])) if node.has_valid('pads') else None),
-                ]
+        return [('pad_mode', 'mode')]
 
     @staticmethod
     def infer(node):
@@ -77,6 +62,9 @@ class Pad(Op):
         assert len(input_shape) == len(pad_end), \
             'Length of end padding "{}" does not correspond to input tensor shape "{}" for node "{}".' \
             ''.format(pad_beg, input_shape, pad_node_name)
+        assert not node.is_in_port_connected(3) or node.in_port(3).data.get_shape().size == 0, \
+            'Optional 3rd input of Pad operation should be scalar, but has shape {} for node {}' \
+            ''.format(node.in_port(3).data.get_shape(), pad_node_name)
 
         node.out_port(0).data.set_shape(input_shape + pad_beg + pad_end)
 
@@ -126,6 +114,28 @@ class TFPad(Op):
     """
 
     op = 'TFPad'
+    enabled = False
+
+    def __init__(self, graph: Graph, attrs: dict):
+        super().__init__(graph, {
+            'op': self.op,
+            'type': None,
+            'infer': None,  # the operation should be replaced before the shape inference
+            'in_ports_count': 3,
+            'out_ports_count': 1,
+            'mode': 'constant',
+        }, attrs)
+
+class ONNXPad(Op):
+    """ Pad operation that explicitly extends an input tensor at borders.
+
+        This operation with the ONNX semantics with inputs:
+        1. Input tensor.
+        2. Pad values
+        3. Fill value (Optional)
+    """
+
+    op = 'ONNXPad'
     enabled = False
 
     def __init__(self, graph: Graph, attrs: dict):

@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -77,7 +77,7 @@ public:
      * Allocates memory for single data node
      */
     bool allocateData(const Data& data);
-    ShapeLocation allocateConstShape(Data& data);
+    ShapeLocation allocateShape(const Data& data);
     void freeData(const Data& data, DeallocationMode mode = DeallocationMode::JustFree);
 
     void selfCheck();
@@ -125,6 +125,8 @@ private:
     DataSet _allocatedIntermData;
 
     DataMap<allocator::MemChunk*> _memChunksPerData;
+
+    std::map<std::pair<DimVector, DimValues>, int> _staticShapeOffsets;
 
     int _blobMemOffset = 0;
     int _inputMemOffset = 0;

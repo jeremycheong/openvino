@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 #include <utility>
+#include <iomanip>
 
 #include <vpu/compile_env.hpp>
 #include <vpu/utils/file_system.hpp>
@@ -26,6 +27,7 @@ void BackEnd::extractDataInfo(
             auto ioBufferOffset = data->attrs().get<int>("ioBufferOffset");
             IE_ASSERT(ioBufferOffset + data->totalByteSize() <= inputInfo.totalSize);
 
+            inputInfo.descFromPlugin[data->name()] = data->desc().toTensorDesc();
             inputInfo.offset[data->name()] = ioBufferOffset;
         } else if (DataUsage::Output == data->usage()) {
             IE_ASSERT(outputInfo.offset.count(data->name()) == 0);
@@ -33,6 +35,7 @@ void BackEnd::extractDataInfo(
             auto ioBufferOffset = data->attrs().get<int>("ioBufferOffset");
             IE_ASSERT(ioBufferOffset + data->totalByteSize() <= outputInfo.totalSize);
 
+            outputInfo.descFromPlugin[data->name()] = data->desc().toTensorDesc();
             outputInfo.offset[data->name()] = ioBufferOffset;
         }
     }

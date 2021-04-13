@@ -1,11 +1,11 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
 #include <vector>
 #include <numeric>
 #include <gtest/gtest.h>
-#include <layer_transform.hpp>
+#include <legacy/layer_transform.hpp>
 #include "gna_matcher.hpp"
 
 using namespace InferenceEngine;
@@ -193,6 +193,17 @@ TEST_F(FP32NonQuantizedTest, CropWithOffsetPropagateForwardWithSuccessOnCPU) {
         .called_with_input_and_expected_output(input_data, expected_result);
 }
 
+TEST_F(FP32NonQuantizedTest, CropWithOffsetAndSecondDimPropagateForwardWithSuccessOnCPU) {
+    std::vector<float> input_data = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
+                                     0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0};
+    std::vector<float> expected_result = {7.0, 7.0, 7.0, 7.0, 7.0,
+                                          7.0, 7.0, 7.0, 7.0, 7.0};
+
+    assert_that().onInferModel(cropWithOffsetAndSecondDimModel())
+        .inNotCompactMode().gna().propagate_forward().onCPU()
+        .called_with_input_and_expected_output(input_data, expected_result);
+}
+
 TEST_F(FP32NonQuantizedTest, CropWithMaxOffsetPropagateForwardWithSuccessOnCPU) {
     std::vector<float> input_data = {1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0,
                                      0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
@@ -332,7 +343,7 @@ TEST_F(FP32NonQuantizedTest, InputSplitConcatReshapeUnalignedPropagateForward) {
 
 TEST_F(FP32NonQuantizedTest, LSTMCellPropagateForward) {
     std::vector<float> input_data(96, 0.10f);
-    std::vector<float> expected_result(32, 0.27119124f);
+    std::vector<float> expected_result(32, 0.14366889f);
 
     assert_that().onInferModel(LSTMCellOnlyModel()).withWeigthsPattern({0.1f})
             .inNotCompactMode().gna().propagate_forward().onCPU()
@@ -368,7 +379,8 @@ TEST_F(FP32NonQuantizedTest, TI1PropagateForwardWithoutScaleShift) {
             .called_with_input(input_data).equals_to(expected_result1).equals_to(expected_result2);
 }
 
-TEST_F(FP32NonQuantizedTest, TI1AlignedPropagateForward) {
+// DISABLED DUE TO (31901)
+TEST_F(FP32NonQuantizedTest, DISABLED_TI1AlignedPropagateForward) {
     std::vector<float> input_data(32, 0.1f);
     std::vector<float> expected_result1(32, 0.25883245);
     std::vector<float> expected_result2(12, 0.59515548f);
@@ -378,7 +390,8 @@ TEST_F(FP32NonQuantizedTest, TI1AlignedPropagateForward) {
             .called_with_input(input_data).equals_to(expected_result1).And().equals_to(expected_result2);
 }
 
-TEST_F(FP32NonQuantizedTest, TI3AlignedPropagateForward) {
+// DISABLED DUE TO (31901)
+TEST_F(FP32NonQuantizedTest, DISABLED_TI3AlignedPropagateForward) {
     std::vector<float> input_data(96, 0.1f);
     std::vector<float> expected_result1(32, 0.42592844f);
     std::vector<float> expected_result2(12, 0.97069889f);

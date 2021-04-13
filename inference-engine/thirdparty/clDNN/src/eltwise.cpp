@@ -1,18 +1,6 @@
-/*
-// Copyright (c) 2016-2019 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 #include "eltwise_inst.h"
@@ -63,6 +51,8 @@ layout eltwise_inst::calc_output_layout(eltwise_node const& node) {
                                                        eltwise_mode::le,
                                                        eltwise_mode::gt,
                                                        eltwise_mode::ge,
+                                                       eltwise_mode::squared_diff,
+                                                       eltwise_mode::floor_mod,
                                                        eltwise_mode::logic_and,
                                                        eltwise_mode::logic_or,
                                                        eltwise_mode::logic_xor};
@@ -258,42 +248,6 @@ eltwise_inst::typed_primitive_inst(network_impl& network, eltwise_node const& no
                                  "Invalid input shapes");
             }
         }
-    }
-
-    // Check inputs calibration factors
-    if (prim->inputs_calibration_factors.size() != 0) {
-        auto icf_size = prim->inputs_calibration_factors.size();
-
-        CLDNN_ERROR_NOT_EQUAL(node.id(),
-                              "Eltwise inputs calibration factors number",
-                              icf_size,
-                              "Eltwise inputs count",
-                              inputs_count,
-                              "");
-
-        for (size_t i = 0; i < icf_size; ++i) {
-            auto icf_size_local = node.input_calibration_factors(i).get_output_layout().size;
-            auto input_size = node.input(i).get_output_layout().size;
-
-            CLDNN_ERROR_NOT_EQUAL(node.id(),
-                                  "Input feature number",
-                                  input_size.feature[0],
-                                  "Input calibration factors number",
-                                  icf_size_local.count(),
-                                  "");
-        }
-    }
-
-    // Check inputs quantization factors
-    if (!prim->input_quantization_factors.empty()) {
-        auto iqf_size = prim->input_quantization_factors.size();
-
-        CLDNN_ERROR_NOT_EQUAL(node.id(),
-                              "Eltwise inputs quantization factors number",
-                              iqf_size,
-                              "Eltwise inputs count",
-                              inputs_count,
-                              "");
     }
 }
 

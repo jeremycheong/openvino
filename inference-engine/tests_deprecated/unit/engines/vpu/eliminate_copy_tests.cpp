@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -85,10 +85,10 @@ TEST_F(VPU_EliminateCopyTest, OneInputTwoConcats) {
     pipeline.run(model);
 
     const auto& hwOutput = hwStage->output(0);
-    ASSERT_NE(hwOutput->parentDataEdge(), nullptr);
+    ASSERT_NE(hwOutput->parentDataToDataEdge(), nullptr);
     ASSERT_EQ(hwOutput->parentData(), outputCopy1);
 
     ASSERT_EQ(hwOutput->numConsumers(), 2);
-    ASSERT_TRUE(contains(hwOutput->consumers(), [](const Stage& stage) { return stage->type() == StageType::Concat; }));
+    ASSERT_TRUE(contains(hwOutput->consumers(), [](const Stage& stage) { return stage->type() == StageType::StubConcat; }));
     ASSERT_TRUE(contains(hwOutput->consumers(), [](const Stage& stage) { return stage->type() == StageType::Copy; }));
 }

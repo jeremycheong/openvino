@@ -1,17 +1,12 @@
-﻿// Copyright (C) 2018-2020 Intel Corporation
+﻿// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
-
-#include <gtest/gtest.h>
-#include <gmock/gmock-spec-builders.h>
-#include "mkldnn_graph.h"
 
 #include "test_graph.hpp"
 
 #include "single_layer_common.hpp"
-#include <mkldnn_extension_utils.h>
 #include "tests_common.hpp"
-#include <cpp/ie_cnn_net_reader.h>
+#include <ie_core.hpp>
 
 
 using namespace ::testing;
@@ -320,15 +315,16 @@ protected:
             strided_slice_test_params p = ::testing::WithParamInterface<strided_slice_test_params>::GetParam();
             std::string model = getModel(p);
             ////std::cout << model;
-            InferenceEngine::CNNNetReader net_reader;
-            ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
+            InferenceEngine::Core core;
+            InferenceEngine::CNNNetwork network;
+            ASSERT_NO_THROW(network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr()));
 
             MKLDNNGraphTestClass graph;
-            graph.CreateGraph(net_reader.getNetwork());
+            graph.CreateGraph(network);
 
             // Output Data
             InferenceEngine::OutputsDataMap out;
-            out = net_reader.getNetwork().getOutputsInfo();
+            out = network.getOutputsInfo();
             InferenceEngine::BlobMap outputBlobs;
 
             std::pair<std::string, InferenceEngine::DataPtr> item = *out.begin();
@@ -353,33 +349,39 @@ protected:
 
             // Input Begin
             InferenceEngine::Blob::Ptr beginIdx;
-            InferenceEngine::SizeVector begin_dim(1, p.begin.size());
+            InferenceEngine::SizeVector begin_dim(1, p.dim_size);
             beginIdx = InferenceEngine::make_shared_blob<int32_t>({ InferenceEngine::Precision::I32, begin_dim, InferenceEngine::TensorDesc::getLayoutByDims(begin_dim) });
             beginIdx->allocate();
             if (p.begin.size())
                 memcpy(static_cast<int32_t*>(beginIdx->buffer()), &p.begin[0], sizeof(int32_t)*p.begin.size());
+            else
+                memset(static_cast<int32_t*>(beginIdx->buffer()), 0, sizeof(int32_t)*p.begin.size());
             auto * beginIdxPtr = dynamic_cast<InferenceEngine::TBlob<int>*>(beginIdx.get());
             if (beginIdxPtr == nullptr)
                 FAIL() << "Cannot cast blob to TBlob<int32_t>.";
 
             // Input End
             InferenceEngine::Blob::Ptr endIdx;
-            InferenceEngine::SizeVector end_dim(1, p.end.size());
+            InferenceEngine::SizeVector end_dim(1, p.dim_size);
             endIdx = InferenceEngine::make_shared_blob<int32_t>({ InferenceEngine::Precision::I32, end_dim, InferenceEngine::TensorDesc::getLayoutByDims(end_dim) });
             endIdx->allocate();
             if (p.end.size())
                 memcpy(static_cast<int32_t*>(endIdx->buffer()), &p.end[0], sizeof(int32_t)*p.end.size());
+            else
+                memset(static_cast<int32_t*>(endIdx->buffer()), 0, sizeof(int32_t)*p.end.size());
             auto * endIdxPtr = dynamic_cast<InferenceEngine::TBlob<int32_t>*>(endIdx.get());
             if (endIdxPtr == nullptr)
                 FAIL() << "Cannot cast blob to TBlob<int32_t>.";
 
             // Input Stride
             InferenceEngine::Blob::Ptr stridesIdx;
-            InferenceEngine::SizeVector strides_dim(1, p.stride.size());
+            InferenceEngine::SizeVector strides_dim(1, p.dim_size);
             stridesIdx = InferenceEngine::make_shared_blob<int32_t>({ InferenceEngine::Precision::I32, strides_dim, InferenceEngine::TensorDesc::getLayoutByDims(strides_dim) });
             stridesIdx->allocate();
             if (p.stride.size())
                 memcpy(static_cast<int32_t*>(stridesIdx->buffer()), &p.stride[0], sizeof(int32_t)*p.stride.size());
+            else
+                memset(static_cast<int32_t*>(stridesIdx->buffer()), 0, sizeof(int32_t)*p.stride.size());
             auto * stridesIdxPtr = dynamic_cast<InferenceEngine::TBlob<int32_t>*>(stridesIdx.get());
             if (stridesIdxPtr == nullptr)
                 FAIL() << "Cannot cast blob to TBlob<int32_t>.";
@@ -407,7 +409,7 @@ protected:
             // Infer
             graph.Infer(srcs, outputBlobs);
             compare(*output, dst_ref);
-        } catch (const InferenceEngine::details::InferenceEngineException &e) {
+        } catch (const InferenceEngine::Exception &e) {
             FAIL() << e.what();
         }
     }
@@ -455,7 +457,7 @@ std::vector<float> test20 = { 4.f, 5.f, 6.f, 7.f };
 21. [[[0,1,2],[3,4,5]]], shape=[1,1,2]
 */
 
-TEST_P(MKLDNNCPUExtStridedSliceTests, TestsStridedSlice) {}
+TEST_P(MKLDNNCPUExtStridedSliceTests, DISABLED_TestsStridedSlice) {}
 INSTANTIATE_TEST_CASE_P(
     TestsStridedSlice, MKLDNNCPUExtStridedSliceTests,
             ::testing::Values(

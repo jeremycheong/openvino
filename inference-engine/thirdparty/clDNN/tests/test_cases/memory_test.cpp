@@ -1,18 +1,6 @@
-/*
-// Copyright (c) 2016 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
+// SPDX-License-Identifier: Apache-2.0
 //
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//      http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-*/
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -408,22 +396,14 @@ TEST(memory_pool, shared_mem_pool_diff_batches) {
     auto outputs = network_first.execute();
 
     auto dev_info = engine.get_info();
-    if (dev_info.supports_usm) {
-        EXPECT_EQ(engine.get_max_used_device_memory_size(), (uint64_t)4312);
-    } else {
-        EXPECT_EQ(engine.get_max_used_device_memory_size(), (uint64_t)3928);
-    }
+    EXPECT_EQ(engine.get_max_used_device_memory_size(), (uint64_t)3928);
 
     topo.change_input_layout("input", input_1.get_layout());//change input layout to batch=1
 
     network network_second(engine, topo, bo);
     network_second.set_input_data("input", input_1);
     auto outputs_second = network_second.execute();
-    if (dev_info.supports_usm) {
-        EXPECT_EQ(engine.get_max_used_device_memory_size(), (uint64_t)4312);
-    } else {
-        EXPECT_EQ(engine.get_max_used_device_memory_size(), (uint64_t)3928);
-    }
+    EXPECT_EQ(engine.get_max_used_device_memory_size(), (uint64_t)3928);
 }
 
 TEST(memory_pool, shared_dep_two_output) {

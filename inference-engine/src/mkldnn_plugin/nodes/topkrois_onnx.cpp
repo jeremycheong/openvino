@@ -1,12 +1,12 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include "list.hpp"
 #include "base.hpp"
 #include <algorithm>
 #include <cassert>
 #include <vector>
+#include "common/cpu_memcpy.h"
 
 
 namespace InferenceEngine {
@@ -30,18 +30,18 @@ public:
     explicit ExperimentalDetectronTopKROIsImpl(const CNNLayer* layer) {
         try {
             if (layer->insData.size() != 2 || layer->outData.empty())
-                THROW_IE_EXCEPTION << "Incorrect number of input/output edges!";
+                IE_THROW() << "Incorrect number of input/output edges!";
 
             if (layer->insData[INPUT_ROIS].lock()->getTensorDesc().getDims().size() != 2 ||
                 layer->insData[INPUT_PROBS].lock()->getTensorDesc().getDims().size() != 1)
-                THROW_IE_EXCEPTION << "Unsupported shape of input blobs!";
+                IE_THROW() << "Unsupported shape of input blobs!";
 
             max_rois_num_ = layer->GetParamAsInt("max_rois", 0);
 
             addConfig(layer,
-                      {DataConfigurator(ConfLayout::PLN), DataConfigurator(ConfLayout::PLN)},
-                      {DataConfigurator(ConfLayout::PLN)});
-        } catch (InferenceEngine::details::InferenceEngineException &ex) {
+                      {DataConfigurator(ConfLayout::PLN, Precision::FP32), DataConfigurator(ConfLayout::PLN, Precision::FP32)},
+                      {DataConfigurator(ConfLayout::PLN, Precision::FP32)});
+        } catch (InferenceEngine::Exception &ex) {
             errorMsg = ex.what();
         }
     }
@@ -61,7 +61,7 @@ public:
         sort(idx.begin(), idx.end(), [&input_probs](size_t i1, size_t i2) {return input_probs[i1] > input_probs[i2];});
 
         for (int i = 0; i < top_rois_num; ++i) {
-            std::memcpy(output_rois + 4 * i, input_rois + 4 * idx[i], 4 * sizeof(float));
+            cpu_memcpy(output_rois + 4 * i, input_rois + 4 * idx[i], 4 * sizeof(float));
         }
 
         return OK;
@@ -71,7 +71,7 @@ private:
     int max_rois_num_;
 };
 
-REG_FACTORY_FOR(ImplFactory<ExperimentalDetectronTopKROIsImpl>, ExperimentalDetectronTopKROIs);
+REG_FACTORY_FOR(ExperimentalDetectronTopKROIsImpl, ExperimentalDetectronTopKROIs);
 
 }  // namespace Cpu
 }  // namespace Extensions

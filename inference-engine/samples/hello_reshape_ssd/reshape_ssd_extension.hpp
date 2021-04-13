@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -8,13 +8,8 @@
 #include <algorithm>
 #include <vector>
 
-#include <ie_layouts.h>
-#include <ie_iextension.h>
-#include <ie_blob.h>
-
-#include <ngraph/op/op.hpp>
-#include <ngraph/node.hpp>
-#include <ngraph/opsets/opset.hpp>
+#include <inference_engine.hpp>
+#include <ngraph/ngraph.hpp>
 
 #define CUSTOM_RELU_TYPE "CustomReLU"
 
@@ -109,7 +104,7 @@ public:
         set_output_type(0, get_input_element_type(0), ngraph::PartialShape(output_shape));
     }
 
-    std::shared_ptr<ngraph::Node> copy_with_new_args(const ngraph::NodeVector& new_args) const override {
+    std::shared_ptr<ngraph::Node> clone_with_new_inputs(const ngraph::OutputVector& new_args) const override {
         if (new_args.size() != 1) {
             throw ngraph::ngraph_error("Incorrect number of new arguments");
         }
@@ -127,7 +122,7 @@ constexpr ngraph::NodeTypeInfo CustomReluOp::type_info;
 class InPlaceExtension : public InferenceEngine::IExtension {
 public:
     InPlaceExtension() {
-        impls["CustomReLU"] = [](const std::shared_ptr<ngraph::Node>& node) -> InferenceEngine::ILayerImpl::Ptr {
+        impls[CUSTOM_RELU_TYPE] = [](const std::shared_ptr<ngraph::Node>& node) -> InferenceEngine::ILayerImpl::Ptr {
             return std::make_shared<CustomReLUImpl>(node);
         };
     }
@@ -135,8 +130,6 @@ public:
     void GetVersion(const InferenceEngine::Version*& versionInfo) const noexcept override {}
 
     void Unload() noexcept override {}
-
-    void Release() noexcept override {}
 
     std::vector<std::string> getImplTypes(const std::shared_ptr<ngraph::Node>& node) override {
         if (impls.find(node->description()) == impls.end())

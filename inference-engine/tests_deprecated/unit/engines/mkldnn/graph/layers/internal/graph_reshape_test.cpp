@@ -1,18 +1,13 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
-#include <gtest/gtest.h>
-#include <gmock/gmock-spec-builders.h>
-#include "mkldnn_graph.h"
-#include "single_layer_common.hpp"
-
 #include "test_graph.hpp"
 
-#include <mkldnn_extension_utils.h>
+#include "single_layer_common.hpp"
 #include "tests_common.hpp"
 
-#include <cpp/ie_cnn_net_reader.h>
+#include <ie_core.hpp>
 
 using namespace ::testing;
 using namespace std;
@@ -116,11 +111,12 @@ protected:
             reshape_test_params p = ::testing::WithParamInterface<reshape_test_params>::GetParam();
             std::string model = getModel(p);
 
-            InferenceEngine::CNNNetReader net_reader;
-            ASSERT_NO_THROW(net_reader.ReadNetwork(model.data(), model.length()));
+            InferenceEngine::Core core;
+            InferenceEngine::CNNNetwork network;
+            ASSERT_NO_THROW(network = core.ReadNetwork(model, InferenceEngine::Blob::CPtr()));
 
             MKLDNNGraphTestClass graph;
-            graph.CreateGraph(net_reader.getNetwork());
+            graph.CreateGraph(network);
             auto& nodes = graph.getNodes();
             for (int i = 0; i < nodes.size(); i++) {
                 if (nodes[i]->getType() == MKLDNNPlugin::Reshape) {
@@ -133,7 +129,8 @@ protected:
                 }
             }
 
-            InferenceEngine::Blob::Ptr src = InferenceEngine::make_shared_blob<float>({InferenceEngine::Precision::FP32, p.in, InferenceEngine::ANY});
+            InferenceEngine::Blob::Ptr src = InferenceEngine::make_shared_blob<float>({InferenceEngine::Precision::FP32, p.in,
+                                                                                       InferenceEngine::TensorDesc::getLayoutByDims(p.in)});
             src->allocate();
             fill_data(src->buffer(), src->size());
 
@@ -146,7 +143,7 @@ protected:
             srcs.insert(std::pair<std::string, InferenceEngine::Blob::Ptr>("in1", src));
 
             InferenceEngine::OutputsDataMap out;
-            out = net_reader.getNetwork().getOutputsInfo();
+            out = network.getOutputsInfo();
             InferenceEngine::BlobMap outputBlobs;
 
             std::pair<std::string, InferenceEngine::DataPtr> item = *out.begin();
@@ -164,7 +161,7 @@ protected:
             ref_reshape(*srcPtr, dst_ref);
 
             compare(*output, dst_ref);
-        } catch (const InferenceEngine::details::InferenceEngineException &e) {
+        } catch (const InferenceEngine::Exception &e) {
             FAIL() << e.what();
         }
     }

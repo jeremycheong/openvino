@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -9,74 +9,41 @@
 #include <iostream>
 #include <vector>
 
-#ifdef ENABLE_MKL_DNN
 # define XBYAK_NO_OP_NAMES
 # define XBYAK_UNDEF_JNL
-# include <xbyak_util.h>
-#endif
+# include <xbyak/xbyak_util.h>
 
 namespace InferenceEngine {
 
-#ifdef ENABLE_MKL_DNN
-static Xbyak::util::Cpu cpu;
-#endif
+static Xbyak::util::Cpu& get_cpu_info() {
+    static Xbyak::util::Cpu cpu;
+    return cpu;
+}
 
 bool with_cpu_x86_sse42() {
-#ifdef ENABLE_MKL_DNN
-    return cpu.has(Xbyak::util::Cpu::tSSE42);
-#else
-#if defined(HAVE_SSE)
-    return true;
-#else
-    return false;
-#endif
-#endif
+    return get_cpu_info().has(Xbyak::util::Cpu::tSSE42);
+}
+
+bool with_cpu_x86_avx() {
+    return get_cpu_info().has(Xbyak::util::Cpu::tAVX);
 }
 
 bool with_cpu_x86_avx2() {
-#ifdef ENABLE_MKL_DNN
-    return cpu.has(Xbyak::util::Cpu::tAVX2);
-#else
-#if defined(HAVE_AVX2)
-    return true;
-#else
-    return false;
-#endif
-#endif
+    return get_cpu_info().has(Xbyak::util::Cpu::tAVX2);
 }
 
 bool with_cpu_x86_avx512f() {
-#ifdef ENABLE_MKL_DNN
-    return cpu.has(Xbyak::util::Cpu::tAVX512F);
-#else
-#if defined(HAVE_AVX512)
-    return true;
-#else
-    return false;
-#endif
-#endif
+    return get_cpu_info().has(Xbyak::util::Cpu::tAVX512F);
 }
 
 bool with_cpu_x86_avx512_core() {
-#ifdef ENABLE_MKL_DNN
-       return cpu.has(Xbyak::util::Cpu::tAVX512F  |
-                      Xbyak::util::Cpu::tAVX512DQ |
-                      Xbyak::util::Cpu::tAVX512BW);
-#else
-#if defined(HAVE_AVX512)
-    return true;
-#else
-    return false;
-#endif
-#endif
+       return get_cpu_info().has(Xbyak::util::Cpu::tAVX512F |
+                                 Xbyak::util::Cpu::tAVX512DQ |
+                                 Xbyak::util::Cpu::tAVX512BW);
 }
 
 bool with_cpu_x86_bfloat16() {
-#ifdef ENABLE_MKL_DNN
-    return cpu.has(Xbyak::util::Cpu::tAVX512_BF16);
-#else
-    return false;
-#endif
+    return get_cpu_info().has(Xbyak::util::Cpu::tAVX512_BF16);
 }
 
 bool checkOpenMpEnvVars(bool includeOMPNumThreads) {
@@ -131,7 +98,11 @@ std::vector<int> getAvailableNUMANodes() { return {0}; }
 
 #if ((IE_THREAD == IE_THREAD_TBB) || (IE_THREAD == IE_THREAD_TBB_AUTO))
 std::vector<int> getAvailableNUMANodes() {
+#if TBB_INTERFACE_VERSION >= 11100
     return tbb::info::numa_nodes();
+#else
+    return {0};
+#endif
 }
 #endif
 

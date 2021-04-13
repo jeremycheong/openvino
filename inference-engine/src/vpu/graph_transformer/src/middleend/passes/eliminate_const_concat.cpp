@@ -1,4 +1,4 @@
-// Copyright (C) 2018-2020 Intel Corporation
+// Copyright (C) 2018-2021 Intel Corporation
 // SPDX-License-Identifier: Apache-2.0
 //
 
@@ -18,7 +18,7 @@ namespace {
 
 class PassImpl final : public PerStagePass {
 public:
-    PassImpl() : PerStagePass({StageType::Concat}) {}
+    PassImpl() : PerStagePass({StageType::StubConcat}) {}
 
     void runForStage(const Model& model, const Stage& stage) override;
 };
